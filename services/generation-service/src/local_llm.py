@@ -10,10 +10,15 @@ logger = logging.getLogger(__name__)
 class LocalLLM:
     def __init__(self):
         model_path = os.getenv("MODEL_PATH", "/models/qwen2.5-3b-instruct-q4_k_m.gguf")
+        if not os.path.exists(model_path):
+            alt_path = str(Path(__file__).parent.parent.parent.parent / "models" / "qwen2.5-3b-instruct-q4_k_m.gguf")
+            if os.path.exists(alt_path):
+                model_path = alt_path
         try:
             self.model = Llama(
                 model_path=model_path,
                 n_gpu_layers=-1,
+                n_threads=os.cpu_count() or 16,
                 n_ctx=4096,
                 verbose=False
             )

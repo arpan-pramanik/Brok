@@ -26,12 +26,19 @@ def health():
     return {"status": "ok"}
 
 
+from functools import lru_cache
+
+@lru_cache(maxsize=1024)
+def _cached_search(query: str, top_k: int):
+    dense_results, sparse_results = hybrid_search(query)
+    fused = rrf_fuse(dense_results, sparse_results, top_n=6)
+    reranked = rerank(query, fused, top_n=top_k)
+    return fused, reranked
+
 @app.post("/retrieve")
 def retrieve(req: QueryRequest) -> RetrievalResult:
     start = time.time()
-    dense_results, sparse_results = hybrid_search(req.query)
-    fused = rrf_fuse(dense_results, sparse_results, top_n=15)
-    reranked = rerank(req.query, fused, top_n=req.top_k)
+    fused, reranked = _cached_search(req.query, req.top_k)
 
     candidates = [
         ChunkCandidate(
