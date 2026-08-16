@@ -14,8 +14,12 @@ QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
 COLLECTION = os.getenv("COLLECTION_NAME", "bragi_goa")
 
 
+_client = None
 def get_client() -> QdrantClient:
-    return QdrantClient(url=QDRANT_URL)
+    global _client
+    if _client is None:
+        _client = QdrantClient(path=str(Path(__file__).parent.parent.parent.parent.parent / "qdrant_data"))
+    return _client
 
 
 def query_sparse_vector(query: str) -> tuple[list[int], list[float]]:

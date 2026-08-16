@@ -11,8 +11,8 @@ from fastapi.responses import JSONResponse
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
 from shared.schemas.transcript import FinalTranscript, PartialTranscript
 
-from src.vad import VAD
-from src.streaming_asr import StreamingASR
+from vad import VAD
+from streaming_asr import StreamingASR
 
 app = FastAPI(title="ASR Service")
 

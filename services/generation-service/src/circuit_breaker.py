@@ -1,8 +1,8 @@
 import logging
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type, RetryError
 from shared.schemas.generation import GenerationRequest, GenerationResponse
-from .local_llm import LocalLLM
-from .fallback_llm import BedrockFallback
+from local_llm import LocalLLM
+from fallback_llm import BedrockFallback
 
 logger = logging.getLogger(__name__)
 

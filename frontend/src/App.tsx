@@ -18,10 +18,11 @@ function App() {
   const [finalText, setFinalText] = useState('');
   const [answer, setAnswer] = useState('');
   const [sources, setSources] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
   
   // Metrics state
   const [timings, setTimings] = useState<StageTiming[]>([]);
-  const [confidence, setConfidence] = useState({ score: 0, threshold: 0.5, shouldAbstain: false });
+  const [confidence, setConfidence] = useState({ score: 0, threshold: 0.3, shouldAbstain: false });
   const [errorMsg, setErrorMsg] = useState('');
 
   const wsRef = useRef<WebSocket | null>(null);
@@ -57,7 +58,6 @@ function App() {
       };
 
       ws.onclose = () => {
-        console.log('WebSocket closed, reconnecting in 3s...');
         setTimeout(connectWebSocket, 3000);
       };
 
@@ -75,8 +75,6 @@ function App() {
       } else {
         setPartialText(data.text);
       }
-    } else if (data.type === 'retrieval_result') {
-      // Could show retrieval results
     } else if (data.type === 'guardrail_result') {
       setConfidence({
         score: data.confidence.top_score,
@@ -86,6 +84,7 @@ function App() {
     } else if (data.type === 'generation_result') {
       setAnswer(data.answer);
       setSources(data.sources || []);
+      setIsLoading(false);
     } else if (data.type === 'stage_timing') {
       setTimings(prev => {
         const existing = prev.filter(t => t.stage !== data.stage);
@@ -93,12 +92,13 @@ function App() {
       });
     } else if (data.type === 'error') {
       setErrorMsg(data.message);
+      setIsLoading(false);
     }
   };
 
   const handleTextSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!textInput.trim()) return;
+    if (!textInput.trim() || isLoading) return;
 
     const query = textInput;
     setTextInput('');
@@ -108,6 +108,7 @@ function App() {
     setSources([]);
     setTimings([]);
     setErrorMsg('');
+    setIsLoading(true);
 
     try {
       const response = await fetch('http://localhost:8000/api/query', {
@@ -120,16 +121,16 @@ function App() {
       if (data.answer) {
         setAnswer(data.answer);
         setSources(data.sources || []);
-        if (data.timings) {
-          setTimings(Object.entries(data.timings).map(([stage, durationMs]) => ({
-            stage: stage as any,
-            durationMs: durationMs as number
+        if (data.stages) {
+          setTimings(data.stages.map((s: any) => ({
+            stage: s.stage,
+            durationMs: s.duration_ms
           })));
         }
         if (data.guardrail) {
           setConfidence({
-            score: data.guardrail.confidence,
-            threshold: 0.5,
+            score: data.guardrail.confidence.top_score,
+            threshold: data.guardrail.confidence.threshold,
             shouldAbstain: data.guardrail.should_abstain
           });
         }
@@ -138,13 +139,14 @@ function App() {
       }
     } catch (err: any) {
       setErrorMsg(err.message || 'Error executing query');
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const toggleRecording = () => {
     setIsRecording(!isRecording);
     if (!isRecording) {
-      // Starting fresh recording
       setFinalText('');
       setPartialText('');
       setAnswer('');
@@ -152,12 +154,10 @@ function App() {
       setTimings([]);
       setErrorMsg('');
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        // Send a start signal if protocol requires it
         wsRef.current.send(JSON.stringify({ type: 'start_recording' }));
       }
     } else {
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        // Send a stop signal
         wsRef.current.send(JSON.stringify({ type: 'stop_recording' }));
       }
     }
@@ -166,102 +166,114 @@ function App() {
   return (
     <div className="app-container">
       <header className="header">
-        <h1>Bragi</h1>
-        <p>voice-enabled RAG</p>
-      </header>
+        <div className="brand">
+          <div className="logo-badge">B</div>
+          <div>
+            <div className="brand-name">BRAGI</div>
+            <div className="brand-tagline">Voice-Enabled RAG System</div>
+          </div>
+        </div>
 
-      <div className="tabs">
-        <button 
-          className={`tab-btn ${viewMode === 'chat' ? 'active' : ''}`}
-          onClick={() => setViewMode('chat')}
-        >
-          Chat Interaction
-        </button>
-        <button 
-          className={`tab-btn ${viewMode === 'benchmark' ? 'active' : ''}`}
-          onClick={() => setViewMode('benchmark')}
-        >
-          System Benchmark
-        </button>
-      </div>
+        <nav className="tabs-nav">
+          <button 
+            className={`nav-tab ${viewMode === 'chat' ? 'active' : ''}`}
+            onClick={() => setViewMode('chat')}
+          >
+            Chat
+          </button>
+          <button 
+            className={`nav-tab ${viewMode === 'benchmark' ? 'active' : ''}`}
+            onClick={() => setViewMode('benchmark')}
+          >
+            Benchmark
+          </button>
+        </nav>
+      </header>
 
       {viewMode === 'chat' ? (
         <>
-          <main className="main-content">
-            <div className="left-panel">
-              <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
-                <Waveform isRecording={isRecording} />
-                
-                <div style={{ marginTop: '1rem', display: 'flex', justifyContent: 'center' }}>
-                  <button 
-                    className="btn" 
-                    onClick={toggleRecording}
-                    style={{ backgroundColor: isRecording ? 'var(--error)' : 'var(--accent-primary)' }}
-                  >
-                    {isRecording ? 'Stop Recording' : 'Start Voice Input'}
-                  </button>
-                </div>
-
-                <div style={{ marginTop: '1rem', flex: 1, display: 'flex', flexDirection: 'column' }}>
-                  <PartialTranscript partialText={partialText} finalText={finalText} />
-                </div>
-
-                <form className="input-group" onSubmit={handleTextSubmit}>
-                  <input 
-                    type="text" 
-                    className="text-input" 
-                    placeholder="Or type your query here..." 
-                    value={textInput}
-                    onChange={(e) => setTextInput(e.target.value)}
-                    disabled={isRecording}
-                  />
-                  <button type="submit" className="btn" disabled={isRecording || !textInput.trim()}>
-                    Send
-                  </button>
-                </form>
+          <main className="main-grid">
+            <div className="glass-panel">
+              <div className="panel-title">
+                <span className="panel-title-dot"></span> Input Stream
               </div>
+
+              <div className="waveform-box">
+                <Waveform isRecording={isRecording} />
+              </div>
+
+              <button 
+                className={`btn-voice ${isRecording ? 'recording' : ''}`} 
+                onClick={toggleRecording}
+              >
+                {isRecording ? 'Stop Recording' : 'Start Voice Input'}
+              </button>
+
+              <div className="transcript-area">
+                <PartialTranscript partialText={partialText} finalText={finalText} />
+              </div>
+
+              <form className="input-bar" onSubmit={handleTextSubmit}>
+                <input 
+                  type="text" 
+                  className="text-input" 
+                  placeholder="Ask any question..." 
+                  value={textInput}
+                  onChange={(e) => setTextInput(e.target.value)}
+                  disabled={isRecording || isLoading}
+                />
+                <button type="submit" className="btn-primary" disabled={isRecording || isLoading || !textInput.trim()}>
+                  {isLoading ? '...' : 'Send'}
+                </button>
+              </form>
             </div>
 
-            <div className="right-panel">
-              <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
-                <h2 style={{ marginTop: 0, marginBottom: '1rem', fontSize: '1.2rem' }}>Response</h2>
-                
-                {errorMsg && (
-                  <div className="error-message">
-                    {errorMsg}
+            <div className="glass-panel">
+              <div className="panel-title">
+                <span className="panel-title-dot" style={{ background: 'var(--accent-cyan)' }}></span> Synthesis Engine
+              </div>
+              
+              {errorMsg && (
+                <div style={{ color: 'var(--status-error)', marginBottom: '1rem', fontSize: '0.9rem' }}>
+                  {errorMsg}
+                </div>
+              )}
+
+              <div className="response-container">
+                {isLoading ? (
+                  <span style={{ color: 'var(--text-muted)' }}>Retrieving and generating answer...</span>
+                ) : answer ? (
+                  answer
+                ) : (
+                  <span style={{ color: 'var(--text-muted)' }}>Ready for query input</span>
+                )}
+
+                {sources.length > 0 && (
+                  <div className="source-list">
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 600 }}>CITED SOURCES</div>
+                    {sources.map((s, i) => (
+                      <span key={i} className="source-tag">{typeof s === 'string' ? s : s.source_doc || 'Doc'}</span>
+                    ))}
                   </div>
                 )}
-                
-                <div className="answer-box">
-                  {answer || <span style={{ color: 'var(--text-secondary)' }}>Awaiting response...</span>}
-                  
-                  {sources.length > 0 && (
-                    <div className="answer-sources">
-                      <strong>Sources:</strong>
-                      <ul style={{ paddingLeft: '1.2rem', margin: '0.5rem 0 0 0' }}>
-                        {sources.map((s, i) => (
-                          <li key={i}>{s.source_doc || s}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </div>
               </div>
             </div>
           </main>
 
-          <div className="bottom-panel">
+          <footer className="bottom-metrics">
             <div className="glass-panel">
+              <div className="panel-title" style={{ fontSize: '0.875rem' }}>Latency Waterfall (ms)</div>
               <LatencyWaterfall timings={timings} />
             </div>
             <div className="glass-panel">
+              <div className="panel-title" style={{ fontSize: '0.875rem' }}>Guardrail Threshold</div>
               <ConfidenceGauge 
                 score={confidence.score} 
                 threshold={confidence.threshold} 
                 shouldAbstain={confidence.shouldAbstain} 
               />
             </div>
-          </div>
+          </footer>
         </>
       ) : (
         <BenchmarkRunner />

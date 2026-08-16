@@ -6,7 +6,7 @@ import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
 
 from shared.schemas.generation import GenerationRequest, GenerationResponse
-from .circuit_breaker import CircuitBreakerLLM
+from circuit_breaker import CircuitBreakerLLM
 
 app = FastAPI(title="Generation Service")
 llm = CircuitBreakerLLM()

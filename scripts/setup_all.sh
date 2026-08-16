@@ -19,8 +19,10 @@ mkdir -p models
 MODEL_PATH="models/qwen2.5-3b-instruct-q4_k_m.gguf"
 if [ ! -f "$MODEL_PATH" ]; then
     echo "downloading Qwen2.5-3B-Instruct Q4_K_M..."
+    python3 -m venv .venv
+    source .venv/bin/activate
     pip install -q huggingface-hub
-    huggingface-cli download Qwen/Qwen2.5-3B-Instruct-GGUF qwen2.5-3b-instruct-q4_k_m.gguf --local-dir models/
+    hf download Qwen/Qwen2.5-3B-Instruct-GGUF qwen2.5-3b-instruct-q4_k_m.gguf --local-dir models/
     echo "model downloaded"
 else
     echo "model already exists at $MODEL_PATH"
@@ -30,6 +32,7 @@ echo ""
 
 # install python deps for local dev
 echo "installing python dependencies..."
+source .venv/bin/activate || true
 pip install -q \
     fastapi uvicorn httpx websockets pydantic \
     sentence-transformers qdrant-client \
@@ -42,7 +45,7 @@ echo ""
 # install frontend deps
 echo "installing frontend dependencies..."
 cd frontend
-npm ci
+npm install
 cd ..
 
 echo ""
@@ -62,6 +65,7 @@ echo ""
 # build index
 echo "building search index..."
 cd services/indexing-service/src
+source ../../../.venv/bin/activate || true
 python build_index.py
 cd "$PROJECT_DIR"
 

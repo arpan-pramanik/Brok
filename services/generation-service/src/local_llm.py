@@ -2,7 +2,7 @@ import os
 import time
 import logging
 from shared.schemas.generation import GenerationRequest, GenerationResponse
-from .prompt_templates import format_prompt
+from prompt_templates import format_prompt
 from llama_cpp import Llama
 
 logger = logging.getLogger(__name__)

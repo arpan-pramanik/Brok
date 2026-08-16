@@ -2,7 +2,7 @@ import time
 import json
 import boto3
 from shared.schemas.generation import GenerationRequest, GenerationResponse
-from .prompt_templates import format_prompt
+from prompt_templates import format_prompt
 
 class BedrockFallback:
     def __init__(self):

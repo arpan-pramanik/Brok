@@ -6,7 +6,8 @@ class VAD:
             repo_or_dir='snakers4/silero-vad',
             model='silero_vad',
             force_reload=False,
-            onnx=False
+            onnx=False,
+            trust_repo=True
         )
         self.get_speech_timestamps, _, self.read_audio, *rest = utils
         self.sampling_rate = 16000

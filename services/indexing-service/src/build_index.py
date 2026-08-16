@@ -9,8 +9,6 @@ from qdrant_client.models import (
     PointStruct,
     SparseVectorParams,
     SparseVector,
-    NamedVector,
-    NamedSparseVector,
 )
 from collections import Counter
 import math
@@ -99,7 +97,7 @@ def build_index():
     embeddings = embed_texts(texts)
 
     print("connecting to qdrant...")
-    client = QdrantClient(url=QDRANT_URL)
+    client = QdrantClient(path=str(Path(__file__).parent.parent.parent.parent.parent / "qdrant_data"))
 
     if client.collection_exists(COLLECTION):
         client.delete_collection(COLLECTION)
