@@ -13,14 +13,12 @@ function App() {
   const [isRecording, setIsRecording] = useState(false);
   const [textInput, setTextInput] = useState('');
   
-  // Chat state
   const [partialText, setPartialText] = useState('');
   const [finalText, setFinalText] = useState('');
   const [answer, setAnswer] = useState('');
   const [sources, setSources] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   
-  // Metrics state
   const [timings, setTimings] = useState<StageTiming[]>([]);
   const [confidence, setConfidence] = useState({ score: 0, threshold: 0.3, shouldAbstain: false });
   const [errorMsg, setErrorMsg] = useState('');
@@ -51,10 +49,6 @@ function App() {
         } catch (e) {
           console.error('Error parsing WS message:', e);
         }
-      };
-
-      ws.onerror = (err) => {
-        console.error('WebSocket error:', err);
       };
 
       ws.onclose = () => {
@@ -166,107 +160,129 @@ function App() {
   return (
     <div className="app-container">
       <header className="header">
-        <div className="brand">
-          <div className="logo-badge">B</div>
-          <div>
-            <div className="brand-name">BRAGI</div>
-            <div className="brand-tagline">Voice-Enabled RAG System</div>
-          </div>
+        <div>
+          <div className="brand-logo">BRAGI</div>
+          <div className="brand-sub">DEVELOPER EDITION</div>
         </div>
 
-        <nav className="tabs-nav">
+        <nav className="nav-tabs">
           <button 
-            className={`nav-tab ${viewMode === 'chat' ? 'active' : ''}`}
+            className={`nav-btn ${viewMode === 'chat' ? 'active' : ''}`}
             onClick={() => setViewMode('chat')}
           >
-            Chat
+            INTERACTION
           </button>
           <button 
-            className={`nav-tab ${viewMode === 'benchmark' ? 'active' : ''}`}
+            className={`nav-btn ${viewMode === 'benchmark' ? 'active' : ''}`}
             onClick={() => setViewMode('benchmark')}
           >
-            Benchmark
+            BENCHMARK
           </button>
         </nav>
       </header>
 
+      <section className="hero-banner">
+        <div className="hero-meta">+++ VOICE RAG ARCHITECTURE +++</div>
+        <h1 className="hero-heading">
+          A LEGEND BROUGHT TO LIFE IN THE HEART OF INTELLIGENCE, UNITING VOICE AND RETRIEVAL
+        </h1>
+      </section>
+
       {viewMode === 'chat' ? (
         <>
-          <main className="main-grid">
-            <div className="glass-panel">
-              <div className="panel-title">
-                <span className="panel-title-dot"></span> Input Stream
+          <main className="workspace-grid">
+            <div className="card-dark">
+              <div className="card-label">
+                <span>01 // INPUT STREAM & SPEECH</span>
+                <span>[ 16KHZ VAD ]</span>
               </div>
 
-              <div className="waveform-box">
+              <div className="waveform-frame">
                 <Waveform isRecording={isRecording} />
               </div>
 
-              <button 
-                className={`btn-voice ${isRecording ? 'recording' : ''}`} 
-                onClick={toggleRecording}
-              >
-                {isRecording ? 'Stop Recording' : 'Start Voice Input'}
-              </button>
+              <div style={{ margin: '1rem 0' }}>
+                <button 
+                  className={isRecording ? 'btn-pill-sand' : 'btn-pill-outline'} 
+                  onClick={toggleRecording}
+                  style={{ width: '100%' }}
+                >
+                  {isRecording ? 'PAUSE VOICE STREAM' : 'START VOICE STREAM'}
+                </button>
+              </div>
 
-              <div className="transcript-area">
+              <div style={{ flex: 1, minHeight: '120px', background: 'rgba(10,9,8,0.5)', padding: '1rem', border: '1px solid var(--border-sand)', marginBottom: '1rem' }}>
                 <PartialTranscript partialText={partialText} finalText={finalText} />
               </div>
 
-              <form className="input-bar" onSubmit={handleTextSubmit}>
+              <form style={{ display: 'flex', gap: '0.5rem' }} onSubmit={handleTextSubmit}>
                 <input 
                   type="text" 
-                  className="text-input" 
-                  placeholder="Ask any question..." 
+                  className="input-field" 
+                  placeholder="Enter query..." 
                   value={textInput}
                   onChange={(e) => setTextInput(e.target.value)}
                   disabled={isRecording || isLoading}
                 />
-                <button type="submit" className="btn-primary" disabled={isRecording || isLoading || !textInput.trim()}>
-                  {isLoading ? '...' : 'Send'}
+                <button type="submit" className="btn-pill-sand" disabled={isRecording || isLoading || !textInput.trim()}>
+                  {isLoading ? '...' : 'SEND'}
                 </button>
               </form>
             </div>
 
-            <div className="glass-panel">
-              <div className="panel-title">
-                <span className="panel-title-dot" style={{ background: 'var(--accent-cyan)' }}></span> Synthesis Engine
+            <div className="card-sand">
+              <div className="card-label">
+                <span>02 // RAG SYNTHESIS ENGINE</span>
+                <span>[ QWEN2.5 + BEDROCK ]</span>
               </div>
-              
+
               {errorMsg && (
-                <div style={{ color: 'var(--status-error)', marginBottom: '1rem', fontSize: '0.9rem' }}>
+                <div style={{ color: '#8b0000', marginBottom: '1rem', fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }}>
                   {errorMsg}
                 </div>
               )}
 
-              <div className="response-container">
+              <div className="response-view">
                 {isLoading ? (
-                  <span style={{ color: 'var(--text-muted)' }}>Retrieving and generating answer...</span>
+                  <span>SYNTHESIZING ANSWER FROM RETRIEVED CHUNKS...</span>
                 ) : answer ? (
                   answer
                 ) : (
-                  <span style={{ color: 'var(--text-muted)' }}>Ready for query input</span>
-                )}
-
-                {sources.length > 0 && (
-                  <div className="source-list">
-                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 600 }}>CITED SOURCES</div>
-                    {sources.map((s, i) => (
-                      <span key={i} className="source-tag">{typeof s === 'string' ? s : s.source_doc || 'Doc'}</span>
-                    ))}
-                  </div>
+                  <span>AWAITING STREAM OR TEXT INPUT...</span>
                 )}
               </div>
+
+              {sources.length > 0 && (
+                <div style={{ marginTop: '1.5rem', paddingTop: '1rem', borderTop: '1px solid rgba(20,18,16,0.2)' }}>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.65rem', letterSpacing: '0.2em', textTransform: 'uppercase', marginBottom: '0.5rem' }}>
+                    REFERENCED SOURCES:
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+                    {sources.map((s, i) => (
+                      <span key={i} style={{ background: 'rgba(20,18,16,0.1)', padding: '0.2rem 0.6rem', fontSize: '0.75rem', fontFamily: 'var(--font-mono)', border: '1px solid rgba(20,18,16,0.2)' }}>
+                        {typeof s === 'string' ? s : s.source_doc || 'Doc'}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </main>
 
-          <footer className="bottom-metrics">
-            <div className="glass-panel">
-              <div className="panel-title" style={{ fontSize: '0.875rem' }}>Latency Waterfall (ms)</div>
+          <footer className="metrics-row">
+            <div className="card-dark">
+              <div className="card-label">
+                <span>STAGE LATENCY WATERFALL</span>
+                <span>[ MILLISECONDS ]</span>
+              </div>
               <LatencyWaterfall timings={timings} />
             </div>
-            <div className="glass-panel">
-              <div className="panel-title" style={{ fontSize: '0.875rem' }}>Guardrail Threshold</div>
+
+            <div className="card-dark">
+              <div className="card-label">
+                <span>GUARDRAIL CONFIDENCE</span>
+                <span>[ CALIBRATED ]</span>
+              </div>
               <ConfidenceGauge 
                 score={confidence.score} 
                 threshold={confidence.threshold} 
