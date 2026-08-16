@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: setup python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: install ruff
+        run: pip install ruff
+
+      - name: lint python
+        run: ruff check services/ shared/ benchmark/
+
+      - name: install test deps
+        run: |
+          pip install pytest pydantic httpx fastapi
+
+      - name: run schema tests
+        run: pytest tests/ -v
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: build frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build

@@ -1,0 +1,102 @@
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
+  retrieval:
+    build:
+      context: .
+      dockerfile: services/retrieval-service/Dockerfile
+    ports:
+      - "8002:8002"
+    environment:
+      - QDRANT_URL=http://qdrant:6333
+      - COLLECTION_NAME=bragi_goa
+    depends_on:
+      - qdrant
+    restart: unless-stopped
+
+  guardrail:
+    build:
+      context: .
+      dockerfile: services/guardrail-service/Dockerfile
+    ports:
+      - "8003:8003"
+    environment:
+      - ABSTAIN_THRESHOLD=0.3
+    restart: unless-stopped
+
+  generation:
+    build:
+      context: .
+      dockerfile: services/generation-service/Dockerfile
+    ports:
+      - "8004:8004"
+    environment:
+      - MODEL_PATH=/models/qwen2.5-3b-instruct-q4_k_m.gguf
+    volumes:
+      - ./models:/models
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+
+  asr:
+    build:
+      context: .
+      dockerfile: services/asr-service/Dockerfile
+    ports:
+      - "8001:8001"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+
+  orchestrator:
+    build:
+      context: .
+      dockerfile: services/orchestrator/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - RETRIEVAL_URL=http://retrieval:8002
+      - GUARDRAIL_URL=http://guardrail:8003
+      - GENERATION_URL=http://generation:8004
+      - ASR_URL=http://asr:8001
+    depends_on:
+      - retrieval
+      - guardrail
+      - generation
+      - asr
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - orchestrator
+    restart: unless-stopped
+
+volumes:
+  qdrant_data:

@@ -1,0 +1,9 @@
+faster-whisper
+torch
+torchaudio
+fastapi
+uvicorn
+websockets
+python-multipart
+numpy
+pydantic

@@ -1,0 +1,35 @@
+{"query": "What is the best beach in Goa for nightlife?", "category": "answerable"}
+{"query": "How many beaches does Goa have?", "category": "answerable"}
+{"query": "What is the history of Portuguese rule in Goa?", "category": "answerable"}
+{"query": "What is vindaloo and where does it come from?", "category": "answerable"}
+{"query": "Where do Olive Ridley turtles nest in Goa?", "category": "answerable"}
+{"query": "What is the Basilica of Bom Jesus?", "category": "answerable"}
+{"query": "How to get to Goa by train?", "category": "answerable"}
+{"query": "What is feni and how is it made?", "category": "answerable"}
+{"query": "When is the best time to visit Goa?", "category": "answerable"}
+{"query": "What is bebinca?", "category": "answerable"}
+{"query": "What festivals are celebrated in Goa?", "category": "answerable"}
+{"query": "Where is Dudhsagar Falls?", "category": "answerable"}
+{"query": "What is the population of Goa?", "category": "answerable"}
+{"query": "What is the Goa Carnival?", "category": "answerable"}
+{"query": "What wildlife can you find in Goa?", "category": "answerable"}
+{"query": "What is Shigmo?", "category": "answerable"}
+{"query": "How is the economy of Goa structured?", "category": "answerable"}
+{"query": "What is the Se Cathedral?", "category": "answerable"}
+{"query": "What are the main rivers in Goa?", "category": "answerable"}
+{"query": "What is prawn balchao?", "category": "answerable"}
+{"query": "What temples are in Goa?", "category": "answerable"}
+{"query": "How much does it cost to travel in Goa?", "category": "answerable"}
+{"query": "What is Fontainhas?", "category": "answerable"}
+{"query": "What is the climate of Goa?", "category": "answerable"}
+{"query": "What is the Salim Ali Bird Sanctuary?", "category": "answerable"}
+{"query": "What is the capital of France?", "category": "out_of_scope"}
+{"query": "How to solve a Rubik's cube?", "category": "out_of_scope"}
+{"query": "What is quantum computing?", "category": "out_of_scope"}
+{"query": "Who won the 2024 FIFA World Cup?", "category": "out_of_scope"}
+{"query": "How to train a neural network from scratch?", "category": "out_of_scope"}
+{"query": "What is the speed of light in vacuum?", "category": "out_of_scope"}
+{"query": "How to cook Italian pasta carbonara?", "category": "out_of_scope"}
+{"query": "What is the current stock price of Apple?", "category": "out_of_scope"}
+{"query": "How to learn Japanese language?", "category": "out_of_scope"}
+{"query": "Explain the theory of relativity", "category": "out_of_scope"}
