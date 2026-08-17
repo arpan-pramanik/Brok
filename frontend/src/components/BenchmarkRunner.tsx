@@ -93,3 +93,5 @@ export const BenchmarkRunner: React.FC = () => {
     </div>
   );
 };
+
+export default BenchmarkRunner;

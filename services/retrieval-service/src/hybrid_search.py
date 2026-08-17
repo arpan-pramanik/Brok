@@ -11,14 +11,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "indexing-service" 
 from embed import embed_query
 
 QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
-COLLECTION = os.getenv("COLLECTION_NAME", "bragi_goa")
+COLLECTION = os.getenv("COLLECTION_NAME", "msmarco_xi")
 
 
 _client = None
 def get_client() -> QdrantClient:
     global _client
     if _client is None:
-        _client = QdrantClient(path=str(Path(__file__).parent.parent.parent.parent.parent / "qdrant_data"))
+        _client = QdrantClient(path=str(Path(__file__).parent.parent.parent.parent / "qdrant_data"))
     return _client
 
 

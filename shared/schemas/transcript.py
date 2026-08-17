@@ -4,6 +4,7 @@ import time
 
 
 class PartialTranscript(BaseModel):
+    type: str = "partial_transcript"
     text: str
     is_final: bool = False
     confidence: float = 0.0
@@ -12,8 +13,9 @@ class PartialTranscript(BaseModel):
 
 
 class FinalTranscript(BaseModel):
+    type: str = "final_transcript"
     text: str
     confidence: float
-    duration_seconds: float
+    duration_seconds: float = 0.0
     timestamp: float = Field(default_factory=time.time)
     language: str = "en"

@@ -53,16 +53,24 @@ async def run_text_pipeline(query: str) -> dict:
         result["stages"].append(stage)
         result["guardrail"] = guardrail
 
+        context_chunks = []
+        source_docs = []
+        
         if guardrail.get("should_abstain"):
-            result["answer"] = ABSTAIN_ANSWER
             result["abstained"] = True
+            result["answer"] = "sorry i dont have any information regarding that."
             result["sources"] = []
-            result["model_used"] = "none"
+            timer.start("generation")
+            stage = timer.end()
+            result["stages"].append(stage)
             result["generation_time_ms"] = 0
-            result["fallback_used"] = False
             result["total_time_ms"] = timer.total_ms()
+            if not result.get("error"):
+                PIPELINE_CACHE[query_key] = result
+            await client.aclose()
             return result
-
+            
+        result["abstained"] = False
         context_chunks = [c["text"] for c in candidates[:5]]
         source_docs = list(set(c["source_doc"] for c in candidates[:5]))
 
@@ -87,7 +95,6 @@ async def run_text_pipeline(query: str) -> dict:
         result["model_used"] = generation.get("model_used", "unknown")
         result["generation_time_ms"] = generation.get("generation_time_ms", 0)
         result["fallback_used"] = generation.get("fallback_used", False)
-        result["abstained"] = False
         result["total_time_ms"] = timer.total_ms()
         if not result.get("error"):
             PIPELINE_CACHE[query_key] = result

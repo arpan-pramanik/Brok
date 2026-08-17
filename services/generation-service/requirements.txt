@@ -1,4 +1,4 @@
-llama-cpp-python
+
 fastapi
 uvicorn
 tenacity

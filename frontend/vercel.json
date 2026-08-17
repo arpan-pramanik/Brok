@@ -1,14 +1,5 @@
 {
-  "rewrites": [
-    {
-      "source": "/api/:path*",
-      "destination": "http://YOUR_AWS_ORCHESTRATOR_IP:8000/api/:path*"
-    },
-    {
-      "source": "/ws",
-      "destination": "http://YOUR_AWS_ORCHESTRATOR_IP:8000/ws"
-    }
-  ],
+  "framework": "vite",
   "headers": [
     {
       "source": "/(.*)",

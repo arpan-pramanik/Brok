@@ -2,17 +2,21 @@ import React, { useEffect, useRef } from 'react';
 
 interface WaveformProps {
   isRecording: boolean;
+  onAudioData?: (data: ArrayBuffer) => void;
 }
 
-export const Waveform: React.FC<WaveformProps> = ({ isRecording }) => {
+export const Waveform: React.FC<WaveformProps> = ({ isRecording, onAudioData }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animationRef = useRef<number | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const dataArrayRef = useRef<Uint8Array | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const processorRef = useRef<ScriptProcessorNode | null>(null);
+  const isRecordingRef = useRef<boolean>(isRecording);
 
   useEffect(() => {
+    isRecordingRef.current = isRecording;
     if (isRecording) {
       startRecording();
     } else {
@@ -28,7 +32,7 @@ export const Waveform: React.FC<WaveformProps> = ({ isRecording }) => {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
       
-      const audioCtx = new window.AudioContext();
+      const audioCtx = new window.AudioContext({ sampleRate: 16000 });
       audioContextRef.current = audioCtx;
       
       const analyser = audioCtx.createAnalyser();
@@ -37,6 +41,21 @@ export const Waveform: React.FC<WaveformProps> = ({ isRecording }) => {
       
       const source = audioCtx.createMediaStreamSource(stream);
       source.connect(analyser);
+      
+      // Capture audio for ASR
+      const processor = audioCtx.createScriptProcessor(4096, 1, 1);
+      processor.onaudioprocess = (e) => {
+        if (!isRecordingRef.current) return;
+        const inputData = e.inputBuffer.getChannelData(0); // Float32Array natively
+        if (onAudioData) {
+            // Need to copy the buffer, otherwise ScriptProcessor reuses the same buffer for next event
+            onAudioData(new Float32Array(inputData).buffer);
+        }
+      };
+      
+      source.connect(processor);
+      processor.connect(audioCtx.destination);
+      processorRef.current = processor;
       
       const bufferLength = analyser.frequencyBinCount;
       dataArrayRef.current = new Uint8Array(bufferLength);
@@ -48,11 +67,21 @@ export const Waveform: React.FC<WaveformProps> = ({ isRecording }) => {
   };
 
   const stopRecording = () => {
+    isRecordingRef.current = false;
     if (animationRef.current) {
       cancelAnimationFrame(animationRef.current);
+      animationRef.current = null;
+    }
+    if (processorRef.current) {
+      processorRef.current.onaudioprocess = null;
+      processorRef.current.disconnect();
+      processorRef.current = null;
     }
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current.getTracks().forEach(track => {
+        track.enabled = false;
+        track.stop();
+      });
       streamRef.current = null;
     }
     if (audioContextRef.current && audioContextRef.current.state !== 'closed') {

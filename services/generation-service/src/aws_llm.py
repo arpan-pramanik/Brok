@@ -6,7 +6,7 @@ from prompt_templates import format_prompt
 class AwsNovaLLM:
     def __init__(self):
         self.client = boto3.client("bedrock-runtime", region_name="us-east-1")
-        self.model_id = "amazon.nova-micro-v1:0"
+        self.model_id = "us.amazon.nova-micro-v1:0"
 
     def generate(self, request: GenerationRequest) -> GenerationResponse:
         prompt = format_prompt(request.query, request.context_chunks, request.source_docs)
