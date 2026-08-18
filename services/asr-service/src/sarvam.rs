@@ -49,9 +49,6 @@ impl SarvamClient {
         let re_fillers = Regex::new(r"(?i)\b(um|uh|er|ah|hmm)\b").unwrap();
         let mut cleaned = re_fillers.replace_all(text, "").to_string();
 
-        let re_stutter = Regex::new(r"(?i)\b(\w+)\s+\1\b").unwrap();
-        cleaned = re_stutter.replace_all(&cleaned, "$1").to_string();
-
         let re_space = Regex::new(r"\s+").unwrap();
         cleaned = re_space.replace_all(&cleaned, " ").to_string();
 
