@@ -1,10 +1,12 @@
 import os
 import sys
 import uuid
-from pathlib import Path
-from collections import Counter
 import re
+from collections import Counter
+from pathlib import Path
 import nltk
+import boto3
+import pandas as pd
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct, SparseVector
 
@@ -13,9 +15,15 @@ from embed import embed_texts
 
 QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
 COLLECTION = "msmarco_xi"
+S3_BUCKET = os.getenv("S3_BUCKET", "bragi-msmarco-xi-dataset")
+REGION = os.getenv("AWS_DEFAULT_REGION", "ap-south-1")
 
 def get_client() -> QdrantClient:
-    return QdrantClient(path=str(Path(__file__).parent.parent.parent.parent / "qdrant_data"))
+    # Use remote URL if set, otherwise fallback to local filesystem for testing
+    if QDRANT_URL.startswith("http"):
+        return QdrantClient(url=QDRANT_URL)
+    else:
+        return QdrantClient(path=str(Path(__file__).parent.parent.parent.parent / "qdrant_data"))
 
 def query_sparse_vector(query: str) -> tuple[list[int], list[float]]:
     tokens = re.findall(r"\w+", query.lower())
@@ -41,12 +49,6 @@ def recursive_chunk(text: str, max_len: int = 512, overlap: int = 64) -> list[st
     return chunks
 
 def multi_strategy_chunk(passage: str, source_id: str) -> list[dict]:
-    """
-    Vast Chunking Strategy:
-    1. Semantic Sentence Tokenization using NLTK.
-    2. Fallback to recursive splitting for sentences that are too large.
-    3. Metadata enrichment.
-    """
     chunks = []
     try:
         sentences = nltk.sent_tokenize(passage)
@@ -97,68 +99,39 @@ def multi_strategy_chunk(passage: str, source_id: str) -> list[dict]:
         
     return chunks
 
-# Mock MSMARCO-XI dataset format because the actual 3.79 GB parquet hangs the HF streaming server 
-MOCK_DATASET = [
-    {
-        "query_id": 1185869,
-        "passages": {
-            "English_passages": [
-                "The presence of communication amid scientific minds was equally important to the success of the Manhattan Project as the intellects themselves. The only cloud hanging over the impressive achievement of the atomic researchers and engineers is what their success truly meant; hundreds of thousands of innocent lives obliterated.",
-                "The Manhattan Project was a research and development undertaking during World War II that produced the first nuclear weapons. It was led by the United States with the support of the United Kingdom and Canada."
-            ]
-        }
-    },
-    {
-        "query_id": 104857,
-        "passages": {
-            "English_passages": [
-                "Photosynthesis is a process used by plants and other organisms to convert light energy into chemical energy that, through cellular respiration, can later be released to fuel the organism's activities.",
-                "In plants, algae, and cyanobacteria, photosynthesis releases oxygen. This is called oxygenic photosynthesis and is by far the most common type of photosynthesis used by living organisms."
-            ]
-        }
-    },
-    {
-        "query_id": 29384,
-        "passages": {
-            "English_passages": [
-                "Artificial intelligence is intelligence demonstrated by machines, as opposed to intelligence of humans and other animals. Example tasks in which this is done include speech recognition, computer vision, translation between (natural) languages, as well as other mappings of inputs.",
-                "The various sub-fields of AI research are centered around particular goals and the use of particular tools. The traditional problems (or goals) of AI research include reasoning, knowledge representation, planning, learning, natural language processing, perception, and the ability to move and manipulate objects."
-            ]
-        }
-    }
-]
-
-def main():
-    print(f"Connecting to Qdrant...")
-    client = get_client()
-
-    print(f"Recreating collection {COLLECTION}...")
-    if client.collection_exists(COLLECTION):
-        client.delete_collection(COLLECTION)
-        
-    client.create_collection(
-        collection_name=COLLECTION,
-        vectors_config={"dense": VectorParams(size=384, distance=Distance.COSINE)},
-        sparse_vectors_config={"sparse": {}}
-    )
-
-    print("Loading AI4Bharat MSMARCO-XI dataset (Mocked due to size)...")
-    ds = MOCK_DATASET
-
+def process_dataframe(df: pd.DataFrame, client: QdrantClient):
     processed = 0
     batch_points = []
     seen_passages = set()
+    
+    # Process up to N rows per shard for quick testing/deployment
+    # Remove the limit for the full run.
+    MAX_ROWS_PER_SHARD = int(os.getenv("MAX_ROWS_PER_SHARD", 1000))
+    df = df.head(MAX_ROWS_PER_SHARD)
 
-    for item in ds:
-        passages_data = item.get("passages", {})
-        eng_passages = passages_data.get("English_passages", [])
-        
+    for idx, row in df.iterrows():
+        # The AI4Bharat MSMARCO-XI dataset structure might vary slightly.
+        # Handle 'passages' containing a list of strings or dictionaries.
+        passages_data = row.get("passages", [])
+        eng_passages = []
+        if isinstance(passages_data, dict):
+             eng_passages = passages_data.get("English_passages", [])
+        elif isinstance(passages_data, list):
+             eng_passages = passages_data
+        elif isinstance(passages_data, str):
+             eng_passages = [passages_data]
+             
+        query_id = row.get("query_id", f"unknown_{idx}")
+
         for i, passage in enumerate(eng_passages):
-            if not passage or passage in seen_passages:
+            if isinstance(passage, dict):
+                passage = passage.get("text", "")
+            
+            if not passage or not isinstance(passage, str) or passage in seen_passages:
                 continue
                 
             seen_passages.add(passage)
-            passage_id = f"{item.get('query_id', 'unknown')}_{i}"
+            passage_id = f"{query_id}_{i}"
             
             chunks = multi_strategy_chunk(passage, passage_id)
             
@@ -189,15 +162,71 @@ def main():
                         "language": "en"
                     }
                 ))
+            
             processed += 1
-
+            
+            # Batch upsert
+            if len(batch_points) >= 100:
+                client.upsert(collection_name=COLLECTION, points=batch_points)
+                batch_points = []
+                
     if batch_points:
-        client.upsert(
+        client.upsert(collection_name=COLLECTION, points=batch_points)
+        
+    return processed
+
+def main():
+    print(f"Connecting to Qdrant at {QDRANT_URL}...")
+    client = get_client()
+
+    print(f"Checking collection {COLLECTION}...")
+    if not client.collection_exists(COLLECTION):
+        client.create_collection(
             collection_name=COLLECTION,
-            points=batch_points
+            vectors_config={"dense": VectorParams(size=384, distance=Distance.COSINE)},
+            sparse_vectors_config={"sparse": {}}
         )
 
-    print(f"Ingestion complete! Successfully indexed {processed} unique passages into {COLLECTION}.")
+    print(f"Connecting to S3 Bucket: {S3_BUCKET}")
+    s3 = boto3.client('s3', region_name=REGION)
+    
+    # List all parquet files in the bucket
+    paginator = s3.get_paginator('list_objects_v2')
+    pages = paginator.paginate(Bucket=S3_BUCKET, Prefix='msmarco-xi/')
+    
+    parquet_files = []
+    for page in pages:
+        if "Contents" in page:
+            for obj in page["Contents"]:
+                if obj["Key"].endswith(".parquet"):
+                    parquet_files.append(obj["Key"])
+                    
+    print(f"Found {len(parquet_files)} parquet shards in S3.")
+    
+    if not parquet_files:
+        print("No Parquet files found. Please ensure the stream_dataset_to_s3.py script is running.")
+        return
+
+    total_processed = 0
+    # Process the first few shards, or all of them depending on deployment needs.
+    # We will process 1 shard by default to limit time unless specified otherwise.
+    SHARDS_TO_PROCESS = int(os.getenv("SHARDS_TO_PROCESS", 1))
+    
+    for i, file_key in enumerate(parquet_files[:SHARDS_TO_PROCESS]):
+        print(f"[{i+1}/{min(SHARDS_TO_PROCESS, len(parquet_files))}] Downloading and ingesting {file_key}...")
+        
+        # We can read parquet directly from S3 using pandas + s3fs
+        s3_uri = f"s3://{S3_BUCKET}/{file_key}"
+        try:
+            df = pd.read_parquet(s3_uri)
+            print(f"  Loaded {len(df)} rows from {file_key}.")
+            processed_in_shard = process_dataframe(df, client)
+            total_processed += processed_in_shard
+            print(f"  Finished ingesting {processed_in_shard} passages from {file_key}.")
+        except Exception as e:
+            print(f"  Error processing {file_key}: {e}")
+
+    print(f"\nIngestion complete! Successfully indexed {total_processed} unique passages into {COLLECTION}.")
 
 if __name__ == "__main__":
     main()

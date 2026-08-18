@@ -16,66 +16,67 @@ services:
 
   retrieval:
     build:
-      context: .
-      dockerfile: services/retrieval-service/Dockerfile
+      context: ./services/retrieval-service
+      dockerfile: Dockerfile
     ports:
       - "8002:8002"
     environment:
       - QDRANT_URL=http://qdrant:6333
-      - COLLECTION_NAME=bragi_goa
+      - COLLECTION_NAME=msmarco_xi
+      - OMP_NUM_THREADS=16
+      - RAYON_NUM_THREADS=16
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     depends_on:
       - qdrant
     restart: unless-stopped
 
-  guardrail:
-    build:
-      context: .
-      dockerfile: services/guardrail-service/Dockerfile
-    ports:
-      - "8003:8003"
-    environment:
-      - ABSTAIN_THRESHOLD=0.3
-    restart: unless-stopped
-
   generation:
     build:
-      context: .
-      dockerfile: services/generation-service/Dockerfile
+      context: ./services/generation-service
+      dockerfile: Dockerfile
     ports:
       - "8004:8004"
     environment:
-      - MODEL_PATH=/models/qwen2.5-3b-instruct-q4_k_m.gguf
-    volumes:
-      - ./models:/models
-
+      - ENVIRONMENT=development
+      - OLLAMA_HOST=http://host.docker.internal:11434
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     restart: unless-stopped
 
   asr:
     build:
-      context: .
-      dockerfile: services/asr-service/Dockerfile
+      context: ./services/asr-service
+      dockerfile: Dockerfile
     ports:
       - "8001:8001"
+    environment:
+      - SARVAM_API_KEY=${SARVAM_API_KEY}
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     restart: unless-stopped
 
   orchestrator:
     build:
-      context: .
-      dockerfile: services/orchestrator/Dockerfile
+      context: ./services/orchestrator
+      dockerfile: Dockerfile
     ports:
       - "8000:8000"
     environment:
       - RETRIEVAL_URL=http://retrieval:8002
-      - GUARDRAIL_URL=http://guardrail:8003
       - GENERATION_URL=http://generation:8004
       - ASR_URL=http://asr:8001
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     depends_on:
       - retrieval
-      - guardrail
       - generation
       - asr
     restart: unless-stopped
-
 
 volumes:
   qdrant_data:

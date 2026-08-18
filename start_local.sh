@@ -1,7 +1,7 @@
 #!/bin/bash
 source .venv/bin/activate
 
-export ABSTAIN_THRESHOLD=0.3
+export ABSTAIN_THRESHOLD=-9.0
 export RETRIEVAL_URL=http://localhost:8002
 export GUARDRAIL_URL=http://localhost:8003
 export GENERATION_URL=http://localhost:8004

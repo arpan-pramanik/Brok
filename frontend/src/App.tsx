@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect } from "react";
-import { Send, User, Loader2, Mic, MicOff, Square } from "lucide-react";
+import { Send, User, Loader2, Mic } from "lucide-react";
 import { Waveform } from "./components/Waveform";
 import { PartialTranscript } from "./components/PartialTranscript";
 import { LatencyWaterfall } from "./components/LatencyWaterfall";
 import { ConfidenceGauge } from "./components/ConfidenceGauge";
 import BenchmarkRunner from "./components/BenchmarkRunner";
+import { DeveloperStats } from "./components/DeveloperStats";
 
 function App() {
   const [query, setQuery] = useState("");
@@ -14,12 +15,14 @@ function App() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [transcript, setTranscript] = useState({ partial: "", final: "" });
   const [metrics, setMetrics] = useState<any>(null);
+  const [ttsEnabled, setTtsEnabled] = useState(true);
   
   const [isRecording, setIsRecording] = useState(false);
   
-  const wsRef = useRef<WebSocket | null>(null);
+  const asrWsRef = useRef<WebSocket | null>(null);
+  const orchWsRef = useRef<WebSocket | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
-  const currentAudioSourceRef = useRef<AudioBufferSourceNode | null>(null);
+  const nextAudioTimeRef = useRef<number>(0);
 
   const initAudio = () => {
     if (!audioContextRef.current) {
@@ -31,14 +34,41 @@ function App() {
     }
   };
 
-  // Initialize WebSocket
-  useEffect(() => {
-    const ws = new WebSocket("ws://localhost:8001/ws");
-    
-    ws.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      console.log("WebSocket message:", data);
+  const playAudioChunk = async (base64Audio: string) => {
+    try {
+      initAudio();
+      const ctx = audioContextRef.current!;
       
+      const binaryString = window.atob(base64Audio);
+      const len = binaryString.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      
+      const audioBuffer = await ctx.decodeAudioData(bytes.buffer);
+      const source = ctx.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(ctx.destination);
+      
+      const currentTime = ctx.currentTime;
+      if (nextAudioTimeRef.current < currentTime) {
+        nextAudioTimeRef.current = currentTime + 0.1; // Add slight buffer
+      }
+      
+      source.start(nextAudioTimeRef.current);
+      nextAudioTimeRef.current += audioBuffer.duration;
+    } catch (e) {
+      console.error("Failed to play audio chunk", e);
+    }
+  };
+
+  // Initialize WebSockets
+  useEffect(() => {
+    // 1. ASR WebSocket (Port 8001)
+    const asrWs = new WebSocket("ws://localhost:8001/ws");
+    asrWs.onmessage = (event) => {
+      const data = JSON.parse(event.data);
       if (data.type === "partial_transcript") {
         setTranscript(prev => ({ ...prev, partial: data.text }));
       } else if (data.type === "final_transcript") {
@@ -50,18 +80,56 @@ function App() {
         setIsRecording(false);
       }
     };
-    
-    wsRef.current = ws;
+    asrWsRef.current = asrWs;
+
+    // 2. Orchestrator WebSocket (Port 8000)
+    const orchWs = new WebSocket("ws://localhost:8000/ws");
+    orchWs.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      console.log("Orchestrator WS message:", data.type);
+      
+      if (data.type === "generation_chunk") {
+        setIsProcessing(false);
+        setAnswer(prev => prev + data.text);
+      } else if (data.type === "audio_chunk") {
+        playAudioChunk(data.data);
+      } else if (data.type === "generation_result") {
+        setIsProcessing(false);
+        if (!answer && data.answer) {
+          setAnswer(data.answer);
+        }
+        if (data.latency || data.guardrail) {
+           setMetrics((prev: any) => ({
+              ...prev,
+              guardrail: data.guardrail
+           }));
+        }
+      } else if (data.type === "retrieval_result") {
+          setMetrics((prev: any) => ({ ...prev, retrieval: data }));
+      } else if (data.type === "guardrail_result") {
+          setMetrics((prev: any) => ({ ...prev, guardrail: data }));
+      } else if (data.type === "stage_timing") {
+          setMetrics((prev: any) => {
+              const latency = prev?.latency || [];
+              return { ...prev, latency: [...latency, data] };
+          });
+      } else if (data.type === "error") {
+          setIsProcessing(false);
+          setAnswer("Error: " + data.message);
+      }
+    };
+    orchWsRef.current = orchWs;
     
     return () => {
-      ws.close();
+      asrWs.close();
+      orchWs.close();
     };
   }, []);
 
   const handleAudioData = (data: ArrayBuffer) => {
     if (!isRecording) return;
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(data);
+    if (asrWsRef.current?.readyState === WebSocket.OPEN) {
+      asrWsRef.current.send(data);
     }
   };
 
@@ -70,8 +138,8 @@ function App() {
     if (!isRecording) {
       setTranscript({ partial: "", final: "" });
       setIsRecording(true);
-      if (wsRef.current?.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify({ type: "start_recording" }));
+      if (asrWsRef.current?.readyState === WebSocket.OPEN) {
+        asrWsRef.current.send(JSON.stringify({ type: "start_recording" }));
       }
     }
   };
@@ -79,83 +147,35 @@ function App() {
   const stopRecording = () => {
     if (isRecording) {
       setIsRecording(false);
-      if (wsRef.current?.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify({ type: "stop_recording" }));
+      if (asrWsRef.current?.readyState === WebSocket.OPEN) {
+        asrWsRef.current.send(JSON.stringify({ type: "stop_recording" }));
       }
     }
   };
 
-  const fallbackTTS = (text: string) => {
-    console.warn("Falling back to Web Speech API");
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.rate = 1.0;
-      utterance.pitch = 1.0;
-      window.speechSynthesis.speak(utterance);
+  const toggleRecording = () => {
+    if (isRecording) {
+      stopRecording();
+    } else {
+      startRecording();
     }
   };
 
-  const speakResponse = async (text: string) => {
-    if (!text) return;
-    try {
-      initAudio();
-      
-      if (currentAudioSourceRef.current) {
-        try { currentAudioSourceRef.current.stop(); } catch (e) {}
-      }
-      
-      const ttsUrl = `http://localhost:8005/synthesize?text=${encodeURIComponent(text)}`;
-      const res = await fetch(ttsUrl);
-      if (res.ok) {
-        const arrayBuffer = await res.arrayBuffer();
-        const ctx = audioContextRef.current!;
-        const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
-        
-        if (currentAudioSourceRef.current) {
-          try { currentAudioSourceRef.current.stop(); } catch (e) {}
-        }
-        
-        const source = ctx.createBufferSource();
-        source.buffer = audioBuffer;
-        source.connect(ctx.destination);
-        source.start(0);
-        currentAudioSourceRef.current = source;
-        return;
-      } else {
-        throw new Error("TTS fetch failed");
-      }
-    } catch (e) {
-      console.error("Audio setup error:", e);
-      fallbackTTS(text);
-    }
-  };
+
 
   const handleTextQuery = async (text: string) => {
     if (!text.trim()) return;
     
     setIsProcessing(true);
     setAnswer("");
-    try {
-      const res = await fetch("http://localhost:8000/api/query", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: text, conversation_id: "test" })
-      });
-      const data = await res.json();
-      setAnswer(data.answer);
-      if (data.answer) {
-        speakResponse(data.answer);
-      }
-      setMetrics({
-        latency: data.latency,
-        guardrail: data.guardrail
-      });
-    } catch (e) {
-      console.error(e);
-      setAnswer("Error connecting to backend.");
-    } finally {
-      setIsProcessing(false);
+    setMetrics({ latency: [], guardrail: null });
+    nextAudioTimeRef.current = 0;
+    
+    if (orchWsRef.current?.readyState === WebSocket.OPEN) {
+       orchWsRef.current.send(JSON.stringify({ type: "text_query", query: text, tts: ttsEnabled }));
+    } else {
+       setAnswer("Error: Orchestrator WebSocket (port 8000) not connected.");
+       setIsProcessing(false);
     }
   };
 
@@ -211,11 +231,7 @@ function App() {
               Benchmark Suite
             </button>
             <button 
-              onMouseDown={startRecording}
-              onMouseUp={stopRecording}
-              onMouseLeave={stopRecording}
-              onTouchStart={startRecording}
-              onTouchEnd={stopRecording}
+              onClick={toggleRecording}
               className={`nav-btn ${isRecording ? "active" : ""}`}
               style={{
                 borderColor: isRecording ? '#c85a5a' : 'var(--border-sand)',
@@ -226,7 +242,7 @@ function App() {
             >
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
                 <Mic size={13} />
-                {isRecording ? "LISTENING..." : "HOLD TO SPEAK"}
+                {isRecording ? "STOP RECORDING" : "START RECORDING"}
               </span>
             </button>
           </div>
@@ -255,25 +271,35 @@ function App() {
                   <PartialTranscript partialText={transcript.partial} finalText={transcript.final} />
                 </div>
                 
-                <button
-                  onMouseDown={startRecording}
-                  onMouseUp={stopRecording}
-                  onMouseLeave={stopRecording}
-                  onTouchStart={startRecording}
-                  onTouchEnd={stopRecording}
-                  className="btn-pill-sand"
-                  style={{ 
-                    marginTop: '1rem',
-                    background: isRecording ? '#c85a5a' : 'var(--bg-dark)',
-                    color: isRecording ? '#fff' : 'var(--text-sand)',
-                    userSelect: 'none'
-                  }}
-                >
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <Mic size={14} />
-                    {isRecording ? "LISTENING..." : "HOLD TO SPEAK"}
-                  </span>
-                </button>
+                <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
+                  <button
+                    onClick={toggleRecording}
+                    className="btn-pill-sand"
+                    style={{ 
+                      flex: 1,
+                      background: isRecording ? '#c85a5a' : 'var(--bg-dark)',
+                      color: isRecording ? '#fff' : 'var(--text-sand)',
+                      userSelect: 'none'
+                    }}
+                  >
+                    <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
+                      <Mic size={14} />
+                      {isRecording ? "STOP RECORDING" : "START SPEAKING"}
+                    </span>
+                  </button>
+                  <button
+                    onClick={() => setTtsEnabled(!ttsEnabled)}
+                    className="btn-pill-sand"
+                    style={{ 
+                      flex: 1,
+                      background: ttsEnabled ? 'var(--bg-dark)' : 'transparent',
+                      color: ttsEnabled ? 'var(--text-sand)' : 'var(--text-muted)',
+                      borderColor: ttsEnabled ? 'var(--border-sand)' : 'var(--border-sand)'
+                    }}
+                  >
+                    VOICE: {ttsEnabled ? "ON" : "OFF"}
+                  </button>
+                </div>
               </div>
 
               {/* Text Input (Developer Mode only) */}
@@ -332,18 +358,23 @@ function App() {
                 </div>
               </div>
 
-              {/* Metrics (Developer Mode only) */}
-              {mode === "developer" && metrics && (
-                <div className="metrics-row">
-                  <div className="card-dark">
-                    <div className="card-label">LATENCY PROFILE</div>
-                    <LatencyWaterfall timings={metrics.latency || []} />
-                  </div>
-                  <div className="card-dark" style={{ alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>
-                    <div className="card-label" style={{ width: '100%' }}>CONFIDENCE</div>
-                    <ConfidenceGauge score={metrics.guardrail?.confidence_score ?? 0} shouldAbstain={metrics.guardrail?.abstained ?? false} threshold={0.7} />
-                  </div>
-                </div>
+              {/* Metrics & Comprehensive Stats (Developer Mode only) */}
+              {mode === "developer" && (
+                <>
+                  {metrics && (
+                    <div className="metrics-row">
+                      <div className="card-dark">
+                        <div className="card-label">LATENCY PROFILE</div>
+                        <LatencyWaterfall timings={metrics.latency || []} />
+                      </div>
+                      <div className="card-dark" style={{ alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>
+                        <div className="card-label" style={{ width: '100%' }}>CONFIDENCE</div>
+                        <ConfidenceGauge score={metrics.guardrail?.top_rerank_score ?? metrics.guardrail?.confidence_score ?? 0} shouldAbstain={metrics.guardrail?.should_abstain ?? false} threshold={0.3} />
+                      </div>
+                    </div>
+                  )}
+                  <DeveloperStats metrics={metrics} ttsEnabled={ttsEnabled} />
+                </>
               )}
             </div>
           </div>

@@ -1,15 +1,14 @@
-FROM python:3.12-slim
+FROM rust:slim AS builder
+WORKDIR /usr/src/app
+RUN apt-get update && apt-get install -y pkg-config libssl-dev
+COPY Cargo.toml ./
+COPY src ./src
+RUN cargo build --release
 
+FROM debian:trixie-slim
 WORKDIR /app
-ENV PYTHONPATH=/app
-
-COPY services/generation-service/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy shared and src
-COPY shared /app/shared
-COPY services/generation-service/src /app/src
+RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /usr/src/app/target/release/generation-service /usr/local/bin/generation-service
 
 EXPOSE 8004
-
-CMD ["uvicorn", "src.server:app", "--host", "0.0.0.0", "--port", "8004"]
+CMD ["generation-service"]

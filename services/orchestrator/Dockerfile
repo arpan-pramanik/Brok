@@ -1,8 +1,14 @@
-FROM python:3.12-slim
+FROM rust:slim AS builder
+WORKDIR /usr/src/app
+RUN apt-get update && apt-get install -y pkg-config libssl-dev
+COPY Cargo.toml ./
+COPY src ./src
+RUN cargo build --release
+
+FROM debian:trixie-slim
 WORKDIR /app
-COPY services/orchestrator/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-COPY shared/ /app/shared/
-COPY services/orchestrator/src/ /app/src/
+RUN apt-get update && apt-get install -y openssl ca-certificates && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /usr/src/app/target/release/orchestrator /app/orchestrator
+
 EXPOSE 8000
-CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["/app/orchestrator"]
