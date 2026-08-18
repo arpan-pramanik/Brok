@@ -8,8 +8,11 @@ import BenchmarkRunner from "./components/BenchmarkRunner";
 import { DeveloperStats } from "./components/DeveloperStats";
 
 function App() {
+  const [isSystemOn, setIsSystemOn] = useState(false);
   const [query, setQuery] = useState("");
   const [answer, setAnswer] = useState("");
+  const answerRef = useRef("");
+
   const [mode, setMode] = useState<"user" | "developer">("user");
   const [view, setView] = useState<"chat" | "benchmark">("chat");
   const [isProcessing, setIsProcessing] = useState(false);
@@ -65,6 +68,8 @@ function App() {
 
   // Initialize WebSockets
   useEffect(() => {
+    if (!isSystemOn) return;
+
     // Helper to upgrade ws:// to wss:// if site is on HTTPS
     const getWsUrl = (envUrl: string, fallback: string) => {
       let url = envUrl || fallback;
@@ -109,8 +114,19 @@ function App() {
       if (data.type === "generation_chunk") {
         setIsProcessing(false);
         setAnswer(prev => prev + data.text);
+        answerRef.current += data.text; // Accumulate immediately for TTS
       } else if (data.type === "audio_chunk") {
         playAudioChunk(data.data);
+      } else if (data.type === "done") {
+        setIsProcessing(false);
+        if (ttsEnabled && 'speechSynthesis' in window) {
+          const currentAnswer = answerRef.current;
+          if (currentAnswer && currentAnswer.trim()) {
+            window.speechSynthesis.cancel();
+            const utterance = new SpeechSynthesisUtterance(currentAnswer);
+            window.speechSynthesis.speak(utterance);
+          }
+        }
       } else if (data.type === "generation_result") {
         setIsProcessing(false);
         if (!answer && data.answer) {
@@ -138,11 +154,19 @@ function App() {
     };
     orchWsRef.current = orchWs;
     
+    // Keep TLS connection to LLM API warm
+    const pingInterval = setInterval(() => {
+      if (orchWs.readyState === WebSocket.OPEN) {
+        orchWs.send(JSON.stringify({ type: "ping" }));
+      }
+    }, 15000);
+    
     return () => {
+      clearInterval(pingInterval);
       asrWs.close();
       orchWs.close();
     };
-  }, []);
+  }, [isSystemOn]);
 
   const handleAudioData = (data: ArrayBuffer) => {
     if (!isRecording) return;
@@ -186,6 +210,7 @@ function App() {
     
     setIsProcessing(true);
     setAnswer("");
+    answerRef.current = "";
     setMetrics({ latency: [], guardrail: null });
     nextAudioTimeRef.current = 0;
     
@@ -205,6 +230,19 @@ function App() {
       setQuery("");
     }
   };
+
+  if (!isSystemOn) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: 'var(--bg-base)' }}>
+        <button 
+          onClick={() => setIsSystemOn(true)}
+          style={{ padding: '1rem 3rem', fontSize: '1.25rem', letterSpacing: '0.05em', fontWeight: 800, background: 'linear-gradient(135deg, #3b82f6, #a855f7)', color: '#fff', border: 'none', borderRadius: '50px', cursor: 'pointer', boxShadow: '0 10px 25px -5px rgba(59, 130, 246, 0.5)' }}
+        >
+          POWER ON SYSTEM
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="app-container">

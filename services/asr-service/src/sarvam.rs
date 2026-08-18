@@ -127,4 +127,45 @@ impl SarvamClient {
         }
         String::new()
     }
+
+    pub async fn synthesize_tts(&self, text: &str) -> Option<String> {
+        if text.trim().is_empty() {
+            return None;
+        }
+
+        let payload = serde_json::json!({
+            "inputs": [text],
+            "target_language_code": "en-IN",
+            "speaker": "meera",
+            "pitch": 0,
+            "pace": 1.0,
+            "loudness": 1.5,
+            "speech_sample_rate": 16000,
+            "enable_preprocessing": true,
+            "model": "bulbul:v1"
+        });
+
+        let res = self
+            .client
+            .post("https://api.sarvam.ai/text-to-speech")
+            .header("api-subscription-key", &self.api_key)
+            .json(&payload)
+            .send()
+            .await;
+
+        if let Ok(resp) = res {
+            if resp.status().is_success() {
+                if let Ok(json) = resp.json::<serde_json::Value>().await {
+                    if let Some(audios) = json.get("audios").and_then(|a| a.as_array()) {
+                        if let Some(first) = audios.first().and_then(|a| a.as_str()) {
+                            return Some(first.to_string());
+                        }
+                    }
+                }
+            } else {
+                println!("Sarvam TTS HTTP Error: {}", resp.status());
+            }
+        }
+        None
+    }
 }

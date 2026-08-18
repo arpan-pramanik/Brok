@@ -25,6 +25,9 @@ services:
       - COLLECTION_NAME=msmarco_xi
       - OMP_NUM_THREADS=16
       - RAYON_NUM_THREADS=16
+      - FASTEMBED_CACHE_DIR=/tmp/fastembed_cache
+    volumes:
+      - /tmp/fastembed_cache:/tmp/fastembed_cache
     dns:
       - 8.8.8.8
       - 1.1.1.1
@@ -41,8 +44,8 @@ services:
     environment:
       - ENVIRONMENT=${ENVIRONMENT:-development}
       - OLLAMA_HOST=http://host.docker.internal:11434
-    volumes:
-      - /home/ubuntu/.aws:/root/.aws:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     dns:
       - 8.8.8.8
       - 1.1.1.1
@@ -55,7 +58,7 @@ services:
     ports:
       - "8001:8001"
     environment:
-      - SARVAM_API_KEY=${SARVAM_API_KEY}
+      - SARVAM_API_KEY=${SARVAM_API_KEY:-sk_foh0jvl2_hnnna9DHfPf85fnMeUld0cdb}
     dns:
       - 8.8.8.8
       - 1.1.1.1
@@ -71,6 +74,11 @@ services:
       - RETRIEVAL_URL=http://retrieval:8002
       - GENERATION_URL=http://generation:8004
       - ASR_URL=http://asr:8001
+      - OLLAMA_HOST=http://host.docker.internal:11434
+      - GROQ_API_KEY=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
+      - ABSTAIN_THRESHOLD=0.30
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     dns:
       - 8.8.8.8
       - 1.1.1.1

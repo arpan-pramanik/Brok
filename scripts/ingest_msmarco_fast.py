@@ -14,11 +14,13 @@ def main():
     print(f"Connecting to Qdrant at {QDRANT_URL}...")
     client = QdrantClient(url=QDRANT_URL)
 
-    if not client.collection_exists(COLLECTION):
-        client.create_collection(
-            collection_name=COLLECTION,
-            vectors_config=VectorParams(size=384, distance=Distance.COSINE)
-        )
+    if client.collection_exists(COLLECTION):
+        client.delete_collection(COLLECTION)
+    
+    client.create_collection(
+        collection_name=COLLECTION,
+        vectors_config={"dense": VectorParams(size=384, distance=Distance.COSINE)}
+    )
 
     print("Loading FastEmbed BGESmallENV15 model...")
     embed_model = TextEmbedding(model_name="BAAI/bge-small-en-v1.5")

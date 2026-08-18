@@ -16,4 +16,6 @@ venv/
 qdrant_data/
 target/
 **/target/
+.fastembed_cache/
+**/.fastembed_cache/
 

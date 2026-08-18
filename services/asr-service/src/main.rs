@@ -56,6 +56,7 @@ async fn main() {
     let app = Router::new()
         .route("/health", get(|| async { Json(serde_json::json!({"status": "ok"})) }))
         .route("/transcribe", post(transcribe_http))
+        .route("/tts", post(tts_http))
         .route("/ws", get(ws_handler))
         .layer(CorsLayer::permissive())
         .with_state(state);
@@ -193,4 +194,22 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
             _ => {}
         }
     }
+}
+
+#[derive(Deserialize)]
+struct TtsRequest {
+    text: String,
+}
+
+async fn tts_http(
+    State(state): State<AppState>,
+    Json(req): Json<TtsRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    if let Some(audio_b64) = state.sarvam.synthesize_tts(&req.text).await {
+        return Ok(Json(serde_json::json!({
+            "audio": audio_b64,
+            "format": "base64_wav"
+        })));
+    }
+    Err((StatusCode::BAD_REQUEST, "Sarvam TTS synthesis unavailable or rejected key".into()))
 }
