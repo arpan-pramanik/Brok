@@ -65,8 +65,22 @@ function App() {
 
   // Initialize WebSockets
   useEffect(() => {
+    // Helper to upgrade ws:// to wss:// if site is on HTTPS
+    const getWsUrl = (envUrl: string, fallback: string) => {
+      let url = envUrl || fallback;
+      if (window.location.protocol === 'https:' && url.startsWith('ws://')) {
+        url = url.replace('ws://', 'wss://');
+      }
+      return url;
+    };
+
     // 1. ASR WebSocket (Port 8001)
-    const asrWs = new WebSocket("ws://localhost:8001/ws");
+    const asrUrl = getWsUrl(import.meta.env.VITE_ASR_WS_URL, "ws://localhost:8001/ws");
+    console.log("Connecting ASR WS to:", asrUrl);
+    const asrWs = new WebSocket(asrUrl);
+    asrWs.onerror = (e) => console.error("ASR WS Error:", e);
+    asrWs.onopen = () => console.log("ASR WS Connected!");
+
     asrWs.onmessage = (event) => {
       const data = JSON.parse(event.data);
       if (data.type === "partial_transcript") {
@@ -83,7 +97,11 @@ function App() {
     asrWsRef.current = asrWs;
 
     // 2. Orchestrator WebSocket (Port 8000)
-    const orchWs = new WebSocket("ws://localhost:8000/ws");
+    const orchUrl = getWsUrl(import.meta.env.VITE_ORCHESTRATOR_WS_URL, "ws://localhost:8000/ws");
+    console.log("Connecting Orchestrator WS to:", orchUrl);
+    const orchWs = new WebSocket(orchUrl);
+    orchWs.onerror = (e) => console.error("Orchestrator WS Error:", e);
+    orchWs.onopen = () => console.log("Orchestrator WS Connected!");
     orchWs.onmessage = (event) => {
       const data = JSON.parse(event.data);
       console.log("Orchestrator WS message:", data.type);

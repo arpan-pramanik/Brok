@@ -77,12 +77,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let env = env::var("ENVIRONMENT").unwrap_or_else(|_| "development".to_string());
     
     let backend = if env == "production" {
-        println!("Using AWS Nova Micro (Production)");
-        let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
+        println!("Using AWS Nova Micro (Production - us-east-1)");
+        let config = aws_config::defaults(aws_config::BehaviorVersion::latest())
+            .region(aws_config::Region::new("us-east-1"))
+            .load()
+            .await;
         let client = aws_sdk_bedrockruntime::Client::new(&config);
         LlmBackend::AwsNova {
             client,
-            model_id: "us.amazon.nova-micro-v1:0".to_string(),
+            model_id: "amazon.nova-micro-v1:0".to_string(),
         }
     } else {
         let ollama_host = env::var("OLLAMA_HOST").unwrap_or_else(|_| "http://localhost:11434".to_string());
@@ -197,6 +200,7 @@ async fn generate_stream(
                         }
                     }
                     Err(e) => {
+                        eprintln!("Bedrock converse_stream error: {:?}", e);
                         let _ = tx.send(Ok(Event::default().data(format!("Service temporarily unavailable: {}", e)))).await;
                     }
                 }

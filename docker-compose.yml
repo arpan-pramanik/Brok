@@ -39,8 +39,10 @@ services:
     ports:
       - "8004:8004"
     environment:
-      - ENVIRONMENT=development
+      - ENVIRONMENT=${ENVIRONMENT:-development}
       - OLLAMA_HOST=http://host.docker.internal:11434
+    volumes:
+      - /home/ubuntu/.aws:/root/.aws:ro
     dns:
       - 8.8.8.8
       - 1.1.1.1

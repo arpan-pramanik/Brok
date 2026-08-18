@@ -414,7 +414,7 @@ async fn run_text_pipeline_stream(query: String, tx: mpsc::Sender<Value>, tts_en
             if let Ok(text) = String::from_utf8(bytes.to_vec()) {
                 for line in text.lines() {
                     if line.starts_with("data:") {
-                        let token = line.trim_start_matches("data:").trim();
+                        let token = line.trim_start_matches("data:");
                         if !token.is_empty() {
                             full_answer.push_str(token);
                             let _ = tx.send(json!({"type": "generation_chunk", "text": token})).await;
