@@ -145,14 +145,10 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                 }
             }
             Message::Binary(b) => {
-                let mut chunk = vec![0f32; b.len() / 4];
-                unsafe {
-                    std::ptr::copy_nonoverlapping(
-                        b.as_ptr(),
-                        chunk.as_mut_ptr() as *mut u8,
-                        b.len(),
-                    );
-                }
+                let chunk: Vec<f32> = b
+                    .chunks_exact(4)
+                    .map(|bytes| f32::from_le_bytes(bytes.try_into().unwrap_or([0; 4])))
+                    .collect();
                 
                 audio_buffer.extend_from_slice(&chunk);
                 chunk_count += 1;
