@@ -66,7 +66,7 @@ function App() {
       audioContextRef.current = new AudioContextClass();
     }
     if (audioContextRef.current.state === 'suspended') {
-      audioContextRef.current.resume();
+      audioContextRef.current.resume().catch(() => {});
     }
   };
 
