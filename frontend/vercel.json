@@ -5,11 +5,11 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "http://13.206.98.50:8000/api/:path*"
+      "destination": "http://65.0.99.182:8000/api/:path*"
     },
     {
       "source": "/ws",
-      "destination": "http://13.206.98.50:8000/ws"
+      "destination": "http://65.0.99.182:8000/ws"
     }
   ]
 }

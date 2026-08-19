@@ -136,13 +136,13 @@ impl SarvamClient {
         let payload = serde_json::json!({
             "inputs": [text],
             "target_language_code": "en-IN",
-            "speaker": "meera",
+            "speaker": "karun",
             "pitch": 0,
             "pace": 1.0,
             "loudness": 1.5,
             "speech_sample_rate": 16000,
             "enable_preprocessing": true,
-            "model": "bulbul:v1"
+            "model": "bulbul:v2"
         });
 
         let res = self

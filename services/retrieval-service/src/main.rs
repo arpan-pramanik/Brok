@@ -88,12 +88,33 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+fn normalize_query(q: &str) -> String {
+    let mut s = q.trim().to_lowercase();
+    let prefixes = [
+        "what is the ", "what is a ", "what is an ", "what is ", "what are the ", "what are ",
+        "what was the ", "what was a ", "what was ", "what were the ", "what were ",
+        "when is the ", "when is a ", "when is ", "when was the ", "when was a ", "when was ", "when were ", "when did ",
+        "where is the ", "where is a ", "where is ", "where was ", "where are ", "where were ",
+        "who is the ", "who is a ", "who is ", "who was the ", "who was ", "who are the ", "who are ", "who were ",
+        "how much does a ", "how much do ", "how much is the ", "how much is a ", "how much is ", "how many ", "how do ", "how does ", "how is ",
+        "can you tell me ", "tell me about ", "tell me ", "do you know ", "i want to know about ", "i want to know ", "explain "
+    ];
+    for p in prefixes {
+        if s.starts_with(p) {
+            s = s[p.len()..].trim().to_string();
+            break;
+        }
+    }
+    s.trim_matches(|c: char| c == '?' || c == '.' || c == '!' || c == ',').trim().to_string()
+}
+
 async fn search_handler(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<QueryRequest>,
 ) -> Json<RetrievalResult> {
     let start = Instant::now();
     let query = payload.query.trim().to_lowercase();
+    let cleaned = normalize_query(&query);
 
     // 0. Check in-memory result cache for sub-1ms response
     {
@@ -110,29 +131,33 @@ async fn search_handler(
         }
     }
     
-    // 1. Embed query
-    let vector = {
+    // 1. Batched embedding for both raw query and normalized keyword query
+    let queries_to_embed = if !cleaned.is_empty() && cleaned != query {
+        vec![query.clone(), cleaned.clone()]
+    } else {
+        vec![query.clone()]
+    };
+
+    let vectors = {
         let mut embed_guard = state.embed_model.lock().await;
-        let embeddings = embed_guard.embed(vec![query.clone()], None).unwrap_or_default();
-        embeddings.into_iter().next().unwrap_or_default()
+        embed_guard.embed(queries_to_embed, None).unwrap_or_default()
     };
     
-    // 2. Search Qdrant via HTTP REST API (using vector name 'dense')
     let search_url = format!("{}/collections/{}/points/search", state.qdrant_url, state.collection_name);
-    let search_body = json!({
-        "vector": {
-            "name": "dense",
-            "vector": vector
-        },
-        "limit": payload.top_k,
-        "with_payload": true
-    });
-    
-    let mut chunks = Vec::new();
-    
-    match state.http_client.post(&search_url).json(&search_body).send().await {
-        Ok(res) => {
-            let status = res.status();
+    let mut candidate_map: std::collections::HashMap<String, ChunkCandidate> = std::collections::HashMap::new();
+
+    // 2. Search Qdrant for both embeddings and merge highest scores
+    for vector in vectors {
+        let search_body = json!({
+            "vector": {
+                "name": "dense",
+                "vector": vector
+            },
+            "limit": payload.top_k,
+            "with_payload": true
+        });
+
+        if let Ok(res) = state.http_client.post(&search_url).json(&search_body).send().await {
             if let Ok(json_res) = res.json::<Value>().await {
                 if let Some(points) = json_res["result"].as_array() {
                     for p in points {
@@ -143,27 +168,31 @@ async fn search_handler(
                         let score = p["score"].as_f64().unwrap_or(0.0) as f32;
                         
                         if !text.is_empty() {
-                            chunks.push(ChunkCandidate {
-                                chunk_id,
+                            let cand = ChunkCandidate {
+                                chunk_id: chunk_id.clone(),
                                 text,
                                 score,
                                 source_doc,
                                 chunk_index,
                                 metadata: json!({}),
-                            });
+                            };
+                            candidate_map.entry(chunk_id)
+                                .and_modify(|existing| {
+                                    if score > existing.score {
+                                        *existing = cand.clone();
+                                    }
+                                })
+                                .or_insert(cand);
                         }
                     }
-                } else {
-                    println!("Qdrant non-array result (status {}): {:?}", status, json_res);
                 }
-            } else {
-                println!("Failed to parse Qdrant JSON response");
             }
         }
-        Err(e) => {
-            println!("HTTP request to Qdrant failed: {:?}", e);
-        }
     }
+
+    let mut chunks: Vec<ChunkCandidate> = candidate_map.into_values().collect();
+    chunks.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    chunks.truncate(payload.top_k);
     
     let elapsed = start.elapsed().as_secs_f64() * 1000.0;
 

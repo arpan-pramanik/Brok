@@ -3,9 +3,16 @@ import React, { useEffect, useRef } from 'react';
 interface WaveformProps {
   isRecording: boolean;
   onAudioData?: (data: ArrayBuffer) => void;
+  width?: number;
+  height?: number;
 }
 
-export const Waveform: React.FC<WaveformProps> = ({ isRecording, onAudioData }) => {
+export const Waveform: React.FC<WaveformProps> = ({ 
+  isRecording, 
+  onAudioData,
+  width = 300,
+  height = 36
+}) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animationRef = useRef<number | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -15,124 +22,143 @@ export const Waveform: React.FC<WaveformProps> = ({ isRecording, onAudioData }) 
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const isRecordingRef = useRef<boolean>(isRecording);
 
+  // Update recording ref synchronously
   useEffect(() => {
     isRecordingRef.current = isRecording;
-    if (isRecording) {
-      startRecording();
-    } else {
-      stopRecording();
+    if (isRecording && !animationRef.current) {
+      draw();
     }
-    return () => {
-      stopRecording();
-    };
   }, [isRecording]);
 
-  const startRecording = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
-      
-      const audioCtx = new window.AudioContext({ sampleRate: 16000 });
-      audioContextRef.current = audioCtx;
-      
-      const analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 256;
-      analyserRef.current = analyser;
-      
-      const source = audioCtx.createMediaStreamSource(stream);
-      source.connect(analyser);
-      
-      // Capture audio for ASR
-      const processor = audioCtx.createScriptProcessor(4096, 1, 1);
-      processor.onaudioprocess = (e) => {
-        if (!isRecordingRef.current) return;
-        const inputData = e.inputBuffer.getChannelData(0); // Float32Array natively
-        if (onAudioData) {
-            // Need to copy the buffer, otherwise ScriptProcessor reuses the same buffer for next event
-            onAudioData(new Float32Array(inputData).buffer);
-        }
-      };
-      
-      source.connect(processor);
-      processor.connect(audioCtx.destination);
-      processorRef.current = processor;
-      
-      const bufferLength = analyser.frequencyBinCount;
-      dataArrayRef.current = new Uint8Array(bufferLength);
-      
-      draw();
-    } catch (err) {
-      console.error("Error accessing microphone:", err);
-    }
-  };
+  // Pre-initialize microphone stream once on mount for INSTANT 0ms activation
+  useEffect(() => {
+    let isMounted = true;
 
-  const stopRecording = () => {
-    isRecordingRef.current = false;
-    if (animationRef.current) {
-      cancelAnimationFrame(animationRef.current);
-      animationRef.current = null;
-    }
-    if (processorRef.current) {
-      processorRef.current.onaudioprocess = null;
-      processorRef.current.disconnect();
-      processorRef.current = null;
-    }
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => {
-        track.enabled = false;
-        track.stop();
-      });
-      streamRef.current = null;
-    }
-    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
-      audioContextRef.current.close();
-      audioContextRef.current = null;
-    }
-    
-    // Clear canvas
-    const canvas = canvasRef.current;
-    if (canvas) {
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const initMicrophone = async () => {
+      try {
+        if (streamRef.current) return;
+        
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        if (!isMounted) {
+          stream.getTracks().forEach(t => t.stop());
+          return;
+        }
+        streamRef.current = stream;
+
+        const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+        const audioCtx = new AudioContextClass({ sampleRate: 16000 });
+        audioContextRef.current = audioCtx;
+
+        const analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 128;
+        analyserRef.current = analyser;
+
+        const source = audioCtx.createMediaStreamSource(stream);
+        source.connect(analyser);
+
+        const processor = audioCtx.createScriptProcessor(2048, 1, 1);
+        processor.onaudioprocess = (e) => {
+          if (!isRecordingRef.current) return;
+          const inputData = e.inputBuffer.getChannelData(0);
+          if (onAudioData) {
+            onAudioData(new Float32Array(inputData).buffer);
+          }
+        };
+
+        source.connect(processor);
+        processor.connect(audioCtx.destination);
+        processorRef.current = processor;
+
+        const bufferLength = analyser.frequencyBinCount;
+        dataArrayRef.current = new Uint8Array(bufferLength);
+        
+        draw();
+      } catch (err) {
+        console.error("Microphone pre-warm error:", err);
       }
-    }
-  };
+    };
+
+    initMicrophone();
+
+    return () => {
+      isMounted = false;
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+      }
+      if (processorRef.current) {
+        processorRef.current.onaudioprocess = null;
+        processorRef.current.disconnect();
+      }
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(t => t.stop());
+      }
+      if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+        audioContextRef.current.close();
+      }
+    };
+  }, []);
 
   const draw = () => {
     const canvas = canvasRef.current;
     const analyser = analyserRef.current;
     const dataArray = dataArrayRef.current;
     
-    if (!canvas || !analyser || !dataArray) return;
-    
+    if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
+
+    if (isRecordingRef.current) {
+      animationRef.current = requestAnimationFrame(draw);
+    } else {
+      animationRef.current = null;
+    }
     
-    animationRef.current = requestAnimationFrame(draw);
-    
-    // @ts-ignore
-    analyser.getByteFrequencyData(dataArray);
-    
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    
-    const barWidth = (canvas.width / dataArray.length) * 2.5;
-    let x = 0;
-    
-    for (let i = 0; i < dataArray.length; i++) {
-      const barHeight = (dataArray[i] / 255) * canvas.height;
+    if (analyser && dataArray) {
+      // @ts-ignore
+      analyser.getByteFrequencyData(dataArray);
       
-      ctx.fillStyle = `rgb(34, 197, 94)`; // success color
-      ctx.fillRect(x, canvas.height - barHeight, barWidth, barHeight);
+      ctx.fillStyle = '#042612';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
       
-      x += barWidth + 1;
+      const barWidth = (canvas.width / dataArray.length) * 1.8;
+      let x = 0;
+      
+      for (let i = 0; i < dataArray.length; i++) {
+        const val = isRecordingRef.current ? dataArray[i] : 0;
+        const barHeight = (val / 255) * canvas.height;
+        
+        const greenVal = Math.min(255, 180 + val);
+        ctx.fillStyle = `rgb(40, ${greenVal}, 100)`;
+        ctx.fillRect(x, canvas.height - barHeight, barWidth - 1, barHeight);
+        
+        x += barWidth + 1;
+      }
+    } else {
+      ctx.fillStyle = '#042612';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = 'rgba(72, 184, 104, 0.2)';
+      ctx.fillRect(0, canvas.height / 2 - 1, canvas.width, 2);
     }
   };
 
   return (
-    <div className="waveform-container">
-      <canvas ref={canvasRef} className="waveform-canvas" width={800} height={120} />
+    <div style={{
+      width: '100%',
+      height: `${height}px`,
+      background: '#042612',
+      border: '2.5px solid #000000',
+      borderRadius: '6px',
+      overflow: 'hidden',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center'
+    }}>
+      <canvas 
+        ref={canvasRef} 
+        width={width} 
+        height={height} 
+        style={{ width: '100%', height: '100%', display: 'block' }} 
+      />
     </div>
   );
 };

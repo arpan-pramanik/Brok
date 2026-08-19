@@ -9,6 +9,9 @@ models/
 node_modules/
 frontend/dist/
 .env
+.env.*
+!.env.example
+*.pem
 .venv/
 venv/
 *.log
@@ -18,4 +21,4 @@ target/
 **/target/
 .fastembed_cache/
 **/.fastembed_cache/
-
+*.parquet

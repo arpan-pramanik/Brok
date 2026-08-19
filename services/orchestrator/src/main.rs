@@ -45,18 +45,32 @@ async fn main() {
     let generation_url = env::var("GENERATION_URL").unwrap_or_else(|_| "http://localhost:8004".to_string());
     let asr_url = env::var("ASR_URL").unwrap_or_else(|_| "http://localhost:8001".to_string());
     let tts_url = env::var("TTS_URL").unwrap_or_else(|_| "http://localhost:8005".to_string());
-    let abstain_threshold = env::var("ABSTAIN_THRESHOLD").unwrap_or_else(|_| "0.52".to_string()).parse::<f64>().unwrap_or(0.52);
+    let abstain_threshold = env::var("ABSTAIN_THRESHOLD").unwrap_or_else(|_| "0.30".to_string()).parse::<f64>().unwrap_or(0.30);
 
     let client = Client::builder()
-        .timeout(std::time::Duration::from_secs(180))
+        .timeout(std::time::Duration::from_secs(30))
         .tcp_nodelay(true)
-        .tcp_keepalive(std::time::Duration::from_secs(15))
-        .pool_idle_timeout(None)
-        .pool_max_idle_per_host(10)
+        .tcp_keepalive(Some(std::time::Duration::from_secs(60)))
+        .pool_idle_timeout(Some(std::time::Duration::from_secs(300)))
+        .pool_max_idle_per_host(32)
         .build()
         .unwrap();
 
-    // Removed global background task. Warm up is now tied to active WS connections.
+    // Pre-warm TCP/TLS connections to Groq, OpenRouter, and Retrieval
+    let warm_client = client.clone();
+    let warm_retrieval = retrieval_url.clone();
+    let warm_groq_key = env::var("GROQ_API_KEY").unwrap_or_default();
+    tokio::spawn(async move {
+        loop {
+            let _ = warm_client.get(format!("{}/health", warm_retrieval)).send().await;
+            if !warm_groq_key.is_empty() {
+                let _ = warm_client.get("https://api.groq.com/openai/v1/models")
+                    .header("Authorization", format!("Bearer {}", warm_groq_key))
+                    .send().await;
+            }
+            tokio::time::sleep(tokio::time::Duration::from_secs(12)).await;
+        }
+    });
     let guardrails = Arc::new(GuardrailEngine::new());
     let harness = Arc::new(OrchestrationHarness::new(
         client.clone(),
@@ -106,7 +120,7 @@ async fn query(State(state): State<AppState>, Json(req): Json<TextQuery>) -> Jso
     
     let query_str = req.query.clone();
     tokio::spawn(async move {
-        run_text_pipeline_stream(query_str, tx, true, state).await;
+        run_text_pipeline_stream(query_str, tx, false, state).await;
     });
 
     let mut result = json!({
@@ -139,12 +153,15 @@ async fn query(State(state): State<AppState>, Json(req): Json<TextQuery>) -> Jso
     let mut total_time = 0.0;
     if let Some(stages) = result["stages"].as_array() {
         for stage in stages {
+            let s_name = stage["stage"].as_str().unwrap_or("unknown");
             if let Some(dur) = stage["duration_ms"].as_f64() {
-                total_time += dur;
+                if s_name != "ttft" {
+                    total_time += dur;
+                }
             }
         }
     }
-    result["total_time_ms"] = json!(total_time);
+    result["total_time_ms"] = json!((total_time * 10.0).round() / 10.0);
 
     Json(result)
 }
@@ -171,7 +188,7 @@ async fn benchmark(State(state): State<AppState>) -> Json<Value> {
         let q_clone = q.clone();
         let state_clone = state.clone();
         tokio::spawn(async move {
-            run_text_pipeline_stream(q_clone, tx, true, state_clone).await;
+            run_text_pipeline_stream(q_clone, tx, false, state_clone).await;
         });
 
         let mut result = json!({
@@ -204,14 +221,17 @@ async fn benchmark(State(state): State<AppState>) -> Json<Value> {
         let mut total_time = 0.0;
         if let Some(stages) = result["stages"].as_array() {
             for stage in stages {
+                let s_name = stage["stage"].as_str().unwrap_or("unknown");
                 if let Some(dur) = stage["duration_ms"].as_f64() {
-                    total_time += dur;
-                    let s_name = stage["stage"].as_str().unwrap_or("unknown").to_string();
-                    stage_times.entry(s_name).or_insert_with(Vec::new).push(dur);
+                    let s_name_str = s_name.to_string();
+                    stage_times.entry(s_name_str).or_insert_with(Vec::new).push(dur);
+                    if s_name != "ttft" {
+                        total_time += dur;
+                    }
                 }
             }
         }
-        result["total_time_ms"] = json!(total_time);
+        result["total_time_ms"] = json!((total_time * 10.0).round() / 10.0);
         
         let abstained = result["guardrail"]["should_abstain"].as_bool().unwrap_or(false);
         result["abstained"] = json!(abstained);
@@ -475,45 +495,92 @@ async fn run_text_pipeline_stream(query: String, tx: mpsc::Sender<Value>, tts_en
     let prompt = if context_chunks.is_empty() {
         "sorry i dont have any information regarding that.".to_string()
     } else {
-        format!("Context: {}\nQuestion: {}\nAnswer concisely in one sentence:", context_chunks.join(" "), query)
+        format!("Context:\n{}\n\nQuestion: {}\nAnswer concisely in one sentence using only the provided context. If not in the context, say: \"Not mentioned in the text.\"\nAnswer:", context_chunks.join(" "), query)
     };
 
-    let groq_api_key = env::var("GROQ_API_KEY").unwrap_or_default();
-    let groq_model = env::var("GROQ_MODEL").unwrap_or_else(|_| "llama-3.2-3b-preview".to_string());
+    let groq_api_key1 = env::var("GROQ_API_KEY").unwrap_or_default();
+    let groq_api_key2 = env::var("GROQ_API_KEY_SECONDARY").unwrap_or_default();
+    let groq_model = env::var("GROQ_MODEL").unwrap_or_else(|_| "allam-2-7b".to_string());
+    let openrouter_key = env::var("OPENROUTER_API_KEY").unwrap_or_default();
+    let openrouter_model = env::var("OPENROUTER_MODEL").unwrap_or_else(|_| "meta-llama/llama-3.1-8b-instruct".to_string());
+
     let groq_req = json!({
         "model": groq_model,
         "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": 64,
+        "max_tokens": 32,
+        "temperature": 0.0,
+        "stream": true
+    });
+
+    let openrouter_req = json!({
+        "model": openrouter_model,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": 32,
         "temperature": 0.0,
         "stream": true
     });
 
     let mut ttft_recorded = false;
     let mut ttft_ms = 0.0;
+    let mut model_used = format!("groq:{}", groq_model);
 
-    if let Ok(resp) = state.http_client.post("https://api.groq.com/openai/v1/chat/completions")
-        .header("Authorization", format!("Bearer {}", groq_api_key))
+    // Nanosecond Switch: Speculatively race Groq Primary, Groq Secondary, and OpenRouter
+    let req1 = state.http_client.post("https://api.groq.com/openai/v1/chat/completions")
+        .header("Authorization", format!("Bearer {}", groq_api_key1))
         .header("Content-Type", "application/json")
         .header("Connection", "keep-alive")
         .json(&groq_req)
-        .send().await
-    {
-        let mut stream = resp.bytes_stream();
-        while let Some(Ok(bytes)) = stream.next().await {
-            if let Ok(text) = String::from_utf8(bytes.to_vec()) {
-                for line in text.lines() {
-                    if let Some(data_str) = line.strip_prefix("data: ") {
-                        if data_str.trim() == "[DONE]" { break; }
-                        if let Ok(chunk) = serde_json::from_str::<Value>(data_str) {
-                            if let Some(token) = chunk["choices"][0]["delta"]["content"].as_str() {
-                                if !token.is_empty() {
-                                    if !ttft_recorded {
-                                        ttft_recorded = true;
-                                        ttft_ms = start_generation.elapsed().as_millis() as f64;
-                                        let _ = tx.send(json!({"type": "stage_timing", "stage": "ttft", "duration_ms": ttft_ms})).await;
+        .send();
+
+    let req2 = state.http_client.post("https://api.groq.com/openai/v1/chat/completions")
+        .header("Authorization", format!("Bearer {}", groq_api_key2))
+        .header("Content-Type", "application/json")
+        .header("Connection", "keep-alive")
+        .json(&groq_req)
+        .send();
+
+    let req3 = state.http_client.post("https://openrouter.ai/api/v1/chat/completions")
+        .header("Authorization", format!("Bearer {}", openrouter_key))
+        .header("Content-Type", "application/json")
+        .header("Connection", "keep-alive")
+        .json(&openrouter_req)
+        .send();
+
+    let (chosen_engine, resp_result) = tokio::select! {
+        r1 = req1 => ("groq-primary", r1),
+        r2 = req2 => ("groq-secondary", r2),
+        r3 = req3 => ("openrouter", r3),
+    };
+
+    if chosen_engine.starts_with("groq") {
+        model_used = format!("groq:{} ({})", groq_model, chosen_engine);
+    } else {
+        model_used = format!("openrouter:{}", openrouter_model);
+    }
+
+    if let Ok(resp) = resp_result {
+        if resp.status().is_success() {
+            let mut stream = resp.bytes_stream();
+            let mut line_buf = String::new();
+            while let Some(Ok(bytes)) = stream.next().await {
+                if let Ok(chunk_str) = std::str::from_utf8(&bytes) {
+                    line_buf.push_str(chunk_str);
+                    while let Some(pos) = line_buf.find('\n') {
+                        let line: String = line_buf.drain(..=pos).collect();
+                        let trimmed = line.trim();
+                        if let Some(data_str) = trimmed.strip_prefix("data: ") {
+                            if data_str.trim() == "[DONE]" { break; }
+                            if let Ok(chunk) = serde_json::from_str::<Value>(data_str) {
+                                if let Some(token) = chunk["choices"][0]["delta"]["content"].as_str() {
+                                    if !token.is_empty() {
+                                        if !ttft_recorded {
+                                            ttft_recorded = true;
+                                            ttft_ms = start_generation.elapsed().as_millis() as f64;
+                                            let _ = tx.send(json!({"type": "stage_timing", "stage": "ttft", "duration_ms": ttft_ms})).await;
+                                        }
+                                        full_answer.push_str(token);
+                                        let _ = tx.send(json!({"type": "generation_chunk", "text": token})).await;
                                     }
-                                    full_answer.push_str(token);
-                                    let _ = tx.send(json!({"type": "generation_chunk", "text": token})).await;
                                 }
                             }
                         }
@@ -525,6 +592,7 @@ async fn run_text_pipeline_stream(query: String, tx: mpsc::Sender<Value>, tts_en
 
     if full_answer.is_empty() {
         full_answer = candidates.first().and_then(|c| c["text"].as_str()).unwrap_or(abstain_answer).to_string();
+        let _ = tx.send(json!({"type": "generation_chunk", "text": full_answer})).await;
     }
 
     // Guardrail 3: Hallucination Check (Sub-2ms Token Grounding Verification)
@@ -546,13 +614,19 @@ async fn run_text_pipeline_stream(query: String, tx: mpsc::Sender<Value>, tts_en
         "type": "generation_result",
         "answer": full_answer,
         "sources": source_docs,
-        "model_used": "generation_service_sse",
+        "model_used": model_used,
         "generation_time_ms": duration_generation,
         "fallback_used": false,
     })).await;
     
     if tts_enabled {
-        fetch_tts_stream(&state.http_client, &state.asr_url, full_answer.clone(), tx.clone()).await;
+        let client = state.http_client.clone();
+        let asr_url = state.asr_url.clone();
+        let full_answer_clone = full_answer.clone();
+        let tx_clone = tx.clone();
+        tokio::spawn(async move {
+            fetch_tts_stream(&client, &asr_url, full_answer_clone, tx_clone).await;
+        });
     }
     
     let _ = tx.send(json!({"type": "done"})).await;

@@ -103,7 +103,7 @@ ssh -o "StrictHostKeyChecking no" -i ~/.ssh/$KEY_NAME.pem ubuntu@$PUBLIC_IP << '
     cd ~/Bragi
     # Setup .env for production
     echo "ENVIRONMENT=production" >> .env
-    echo "SARVAM_API_KEY=sk_foh0jvl2_hnnna9DHfPp85fnMeUld0cdb" >> .env
+    echo "SARVAM_API_KEY=${SARVAM_API_KEY}" >> .env
     
     # Mount AWS credentials into generation-service via docker-compose override or env
     # Since generation-service is built via docker, we'll just run it

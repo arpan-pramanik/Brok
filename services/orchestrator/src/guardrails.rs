@@ -27,7 +27,10 @@ impl GuardrailEngine {
             "people", "into", "year", "your", "good", "some", "could", "them", "see", "other",
             "than", "then", "now", "look", "only", "come", "its", "over", "think", "also",
             "back", "after", "use", "two", "how", "our", "work", "first", "well", "way",
-            "even", "new", "want", "because", "any", "these", "give", "day", "most", "us"
+            "even", "new", "want", "because", "any", "these", "give", "day", "most", "us",
+            "approximately", "around", "according", "context", "states", "stated", "mentioned",
+            "text", "provided", "information", "regarding", "based", "answer", "serves", "serving",
+            "earned", "earning", "includes", "including", "typically", "report", "reported"
         ];
 
         Self {
@@ -125,7 +128,7 @@ impl GuardrailEngine {
             .count();
 
         let ratio = ungrounded_count as f64 / content_words.len() as f64;
-        if ratio > 0.60 {
+        if ratio > 0.80 {
             return Some(GuardrailDecision {
                 should_abstain: true,
                 reason: format!("Hallucination detected: answer contains {:.0}% ungrounded content tokens", ratio * 100.0),

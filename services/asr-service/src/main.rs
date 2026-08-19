@@ -63,7 +63,12 @@ async fn main() {
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 8001));
     println!("ASR Service running on {}", addr);
-    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+    let socket = tokio::net::TcpSocket::new_v4().unwrap();
+    socket.set_reuseaddr(true).unwrap();
+    #[cfg(unix)]
+    let _ = socket.set_reuseport(true);
+    socket.bind(addr).unwrap();
+    let listener = socket.listen(1024).unwrap();
     axum::serve(listener, app).await.unwrap();
 }
 
@@ -153,43 +158,6 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                 
                 audio_buffer.extend_from_slice(&chunk);
                 chunk_count += 1;
-                
-                let check_length = audio_buffer.len().min(16000);
-                let recent_audio = &audio_buffer[audio_buffer.len() - check_length..];
-                
-                if recent_audio.len() >= 512 {
-                    if state.vad.detect(recent_audio) {
-                        speech_detected = true;
-                        silence_chunks = 0;
-                    } else {
-                        silence_chunks += 1;
-                    }
-                }
-                
-                if speech_detected && silence_chunks >= 6 {
-                    let text = state.sarvam.transcribe(&audio_buffer).await;
-                    let duration = audio_buffer.len() as f32 / 16000.0;
-                    let res = FinalTranscript {
-                        msg_type: "final_transcript".into(),
-                        text,
-                        confidence: 0.99,
-                        duration_seconds: duration,
-                        language: "en-IN".into(),
-                    };
-                    let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap())).await;
-                    
-                    audio_buffer.clear();
-                    speech_detected = false;
-                    silence_chunks = 0;
-                    
-                    let _ = socket.send(Message::Text(r#"{"type":"vad_stop"}"#.into())).await;
-                } else if chunk_count % 4 == 0 {
-                    let partial = PartialTranscript {
-                        msg_type: "partial_transcript".into(),
-                        text: "".into(),
-                    };
-                    let _ = socket.send(Message::Text(serde_json::to_string(&partial).unwrap())).await;
-                }
             }
             _ => {}
         }
