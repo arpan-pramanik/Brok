@@ -98,9 +98,8 @@ impl SarvamClient {
 
         let form = multipart::Form::new()
             .part("file", part)
-            .text("model", "saaras:v3")
-            .text("language_code", "en-IN")
-            .text("mode", "transcribe");
+            .text("model", "saarika:v2.5")
+            .text("language_code", "en-IN");
 
         let res = self
             .client

@@ -66,6 +66,7 @@ function App() {
   };
 
   const speechRecRef = useRef<any>(null);
+  const transcriptTextRef = useRef<string>("");
 
   useEffect(() => {
     const getWsUrl = (envUrl: string, fallback: string) => {
@@ -87,6 +88,7 @@ function App() {
           if (data.type === "partial_transcript") {
             setTranscript(prev => ({ ...prev, partial: data.text }));
           } else if (data.type === "final_transcript") {
+            transcriptTextRef.current = data.text;
             setTranscript({ partial: "", final: data.text });
             if (data.text.trim()) {
               handleTextQuery(data.text);
@@ -151,6 +153,7 @@ function App() {
     initAudio();
     if (!isRecording) {
       playSfx('pokedex_scan_open.ogg', 0.6);
+      transcriptTextRef.current = "";
       setTranscript({ partial: "", final: "" });
       setIsRecording(true);
 
@@ -173,7 +176,9 @@ function App() {
                 interim += res[0].transcript;
               }
             }
-            setTranscript({ partial: interim, final: final || interim });
+            const currentFull = final || interim;
+            transcriptTextRef.current = currentFull;
+            setTranscript({ partial: interim, final: currentFull });
           };
           rec.onerror = (err: any) => {
             console.warn("Speech recognition notice:", err.error);
@@ -208,13 +213,10 @@ function App() {
         asrWsRef.current.send(JSON.stringify({ type: "stop_recording" }));
       }
 
-      setTranscript(prev => {
-        const textToSubmit = prev.final.trim() || prev.partial.trim();
-        if (textToSubmit) {
-          handleTextQuery(textToSubmit);
-        }
-        return { partial: "", final: textToSubmit };
-      });
+      const textToSubmit = transcriptTextRef.current.trim();
+      if (textToSubmit) {
+        handleTextQuery(textToSubmit);
+      }
     }
   };
 
