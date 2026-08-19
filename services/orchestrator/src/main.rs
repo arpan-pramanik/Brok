@@ -1,7 +1,7 @@
 use axum::{
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
-        State,
+        Multipart, State,
     },
     http::StatusCode,
     response::{IntoResponse, Json},
@@ -95,6 +95,7 @@ async fn main() {
     let app = Router::new()
         .route("/health", get(health))
         .route("/api/query", post(query))
+        .route("/api/transcribe", post(transcribe_handler))
         .route("/api/benchmark", post(benchmark))
         .route("/ws", get(ws_endpoint))
         .layer(CorsLayer::permissive())
@@ -108,6 +109,46 @@ async fn main() {
 
 async fn health() -> Json<Value> {
     Json(json!({"status": "ok"}))
+}
+
+async fn transcribe_handler(
+    State(state): State<AppState>,
+    mut multipart: axum::extract::Multipart,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let sarvam_key = env::var("SARVAM_API_KEY").unwrap_or_default();
+    while let Ok(Some(field)) = multipart.next_field().await {
+        let name = field.name().unwrap_or("").to_string();
+        if name == "file" || name == "audio" {
+            let data = field.bytes().await.map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+            let part = reqwest::multipart::Part::bytes(data.to_vec())
+                .file_name("audio.wav")
+                .mime_str("audio/wav")
+                .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+
+            let form = reqwest::multipart::Form::new()
+                .part("file", part)
+                .text("model", "saarika:v2.5")
+                .text("language_code", "en-IN");
+
+            let res = state.http_client
+                .post("https://api.sarvam.ai/speech-to-text")
+                .header("api-subscription-key", &sarvam_key)
+                .multipart(form)
+                .send()
+                .await;
+
+            if let Ok(resp) = res {
+                if let Ok(json_body) = resp.json::<Value>().await {
+                    let transcript = json_body["transcript"].as_str().unwrap_or("").to_string();
+                    return Ok(Json(json!({
+                        "type": "final_transcript",
+                        "text": transcript
+                    })));
+                }
+            }
+        }
+    }
+    Ok(Json(json!({"type": "final_transcript", "text": ""})))
 }
 
 #[derive(Deserialize)]

@@ -6,6 +6,38 @@ import { Waveform } from "./components/Waveform";
 import { PokeballOverlay } from "./components/PokeballOverlay";
 import { playSfx } from "./utils/sfx";
 
+function encodeWavBlob(samples: Float32Array, sampleRate = 16000): Blob {
+  const buffer = new ArrayBuffer(44 + samples.length * 2);
+  const view = new DataView(buffer);
+
+  const writeString = (view: DataView, offset: number, string: string) => {
+    for (let i = 0; i < string.length; i++) {
+      view.setUint8(offset + i, string.charCodeAt(i));
+    }
+  };
+
+  writeString(view, 0, 'RIFF');
+  view.setUint32(4, 36 + samples.length * 2, true);
+  writeString(view, 8, 'WAVE');
+  writeString(view, 12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeString(view, 36, 'data');
+  view.setUint32(40, samples.length * 2, true);
+
+  let offset = 44;
+  for (let i = 0; i < samples.length; i++, offset += 2) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+  }
+  return new Blob([buffer], { type: 'audio/wav' });
+}
+
 function App() {
   const [query, setQuery] = useState("");
   const [answer, setAnswer] = useState("");
@@ -19,12 +51,14 @@ function App() {
   const [ttsEnabled, setTtsEnabled] = useState(true);
   
   const [isRecording, setIsRecording] = useState(false);
+  const isRecordingRef = useRef(false);
   
   const asrWsRef = useRef<WebSocket | null>(null);
   const orchWsRef = useRef<WebSocket | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const nextAudioTimeRef = useRef<number>(0);
   const chatScrollRef = useRef<HTMLDivElement>(null);
+  const audioChunksRef = useRef<Float32Array[]>([]);
 
   const initAudio = () => {
     if (!audioContextRef.current) {
@@ -154,8 +188,10 @@ function App() {
     if (!isRecording) {
       playSfx('pokedex_scan_open.ogg', 0.6);
       transcriptTextRef.current = "";
+      audioChunksRef.current = [];
       setTranscript({ partial: "", final: "" });
       setIsRecording(true);
+      isRecordingRef.current = true;
 
       // 1. Browser Native Web Speech API
       const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -197,10 +233,11 @@ function App() {
     }
   };
 
-  const stopRecording = () => {
+  const stopRecording = async () => {
     if (isRecording) {
       playSfx('pokedex_scan_close.ogg', 0.5);
       setIsRecording(false);
+      isRecordingRef.current = false;
 
       if (speechRecRef.current) {
         try {
@@ -213,9 +250,42 @@ function App() {
         asrWsRef.current.send(JSON.stringify({ type: "stop_recording" }));
       }
 
-      const textToSubmit = transcriptTextRef.current.trim();
+      let textToSubmit = transcriptTextRef.current.trim();
       if (textToSubmit) {
         handleTextQuery(textToSubmit);
+        return;
+      }
+
+      // If Web Speech didn't capture text, transcribe the collected audio buffer via Sarvam /api/transcribe
+      if (audioChunksRef.current.length > 0) {
+        const totalLen = audioChunksRef.current.reduce((acc, c) => acc + c.length, 0);
+        if (totalLen >= 1600) {
+          const merged = new Float32Array(totalLen);
+          let offset = 0;
+          for (const chunk of audioChunksRef.current) {
+            merged.set(chunk, offset);
+            offset += chunk.length;
+          }
+          const wavBlob = encodeWavBlob(merged, 16000);
+          const formData = new FormData();
+          formData.append("file", wavBlob, "audio.wav");
+
+          try {
+            const res = await fetch("/api/transcribe", {
+              method: "POST",
+              body: formData,
+            });
+            if (res.ok) {
+              const data = await res.json();
+              if (data.text && data.text.trim()) {
+                setTranscript({ partial: "", final: data.text });
+                handleTextQuery(data.text);
+              }
+            }
+          } catch (err) {
+            console.error("Transcribe request error:", err);
+          }
+        }
       }
     }
   };
@@ -235,6 +305,9 @@ function App() {
   }, [isRecording]);
 
   const handleAudioData = (data: ArrayBuffer) => {
+    if (isRecordingRef.current) {
+      audioChunksRef.current.push(new Float32Array(data));
+    }
     if (asrWsRef.current?.readyState === WebSocket.OPEN) {
       asrWsRef.current.send(data);
     }
