@@ -1,4 +1,4 @@
-# Bragi
+# Brok
 
 voice-enabled RAG system with local-first inference, hybrid retrieval, calibrated guardrails, and circuit-breaker cloud fallback.
 
