@@ -508,7 +508,7 @@ async fn run_text_pipeline_stream(query: String, tx: mpsc::Sender<Value>, tts_en
         let q_clone = q_clone.clone();
         async move {
             let res = client.post(format!("{}/retrieve", ret_url))
-                .json(&json!({"query": q_clone, "top_k": 2}))
+                .json(&json!({"query": q_clone, "top_k": 4}))
                 .send().await
                 .map_err(|e| e.to_string())?;
             res.json::<Value>().await.map_err(|e| e.to_string())
@@ -571,7 +571,7 @@ async fn run_text_pipeline_stream(query: String, tx: mpsc::Sender<Value>, tts_en
     let mut source_docs = Vec::new();
     let mut context_chunks = Vec::new();
 
-    for c in candidates.iter().take(2) {
+    for c in candidates.iter().take(4) {
         if let Some(txt) = c["text"].as_str() {
             context_chunks.push(txt.to_string());
         }
@@ -586,7 +586,7 @@ async fn run_text_pipeline_stream(query: String, tx: mpsc::Sender<Value>, tts_en
     let prompt = if context_chunks.is_empty() {
         "sorry i dont have any information regarding that.".to_string()
     } else {
-        format!("Context:\n{}\n\nQuestion: {}\nAnswer concisely in one sentence using only the provided context. If not in the context, say: \"Not mentioned in the text.\"\nAnswer:", context_chunks.join(" "), query)
+        format!("Context:\n{}\n\nQuestion: {}\nAnswer the question directly and concisely in 1-2 complete sentences based on the context above.\nAnswer:", context_chunks.join(" "), query)
     };
 
     let groq_api_key1 = env::var("GROQ_API_KEY").unwrap_or_default();
@@ -598,7 +598,7 @@ async fn run_text_pipeline_stream(query: String, tx: mpsc::Sender<Value>, tts_en
     let groq_req = json!({
         "model": groq_model,
         "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": 32,
+        "max_tokens": 96,
         "temperature": 0.0,
         "stream": true
     });
@@ -606,7 +606,7 @@ async fn run_text_pipeline_stream(query: String, tx: mpsc::Sender<Value>, tts_en
     let openrouter_req = json!({
         "model": openrouter_model,
         "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": 32,
+        "max_tokens": 96,
         "temperature": 0.0,
         "stream": true
     });
