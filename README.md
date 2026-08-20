@@ -85,7 +85,7 @@ Latency numbers measured across **225 real test queries** running against the li
 
 ### Cloud vs. Local GPU (NVIDIA RTX 5070) Benchmark
 
-When running the pipeline completely on-device using a dedicated local GPU (**NVIDIA GeForce RTX 5070 12GB**) with quantized local models (`Qwen2.5-3B-Instruct Q4_K_M` via `llama.cpp` CUDA backend), network RTT is completely eliminated, yielding even lower processing latency:
+When running the pipeline completely on-device using a dedicated local GPU (**NVIDIA GeForce RTX 5070 8GB**) with quantized local models (`Qwen2.5-3B-Instruct Q4_K_M` via `llama.cpp` CUDA backend), network RTT is completely eliminated, yielding even lower processing latency:
 
 | Deployment Mode | Retrieval | TTFT | Generation (Avg) | Total E2E Latency (P50) | P95 |
 | :--- | :--- | :--- | :--- | :--- | :--- |
