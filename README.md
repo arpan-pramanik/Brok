@@ -74,9 +74,10 @@ Latency numbers measured across **225 real test queries** running against the li
 
 | Pipeline Stage | P50 (Median) | P70 | P95 | P100 (Max) | Mean |
 | :--- | :--- | :--- | :--- | :--- | :--- |
+| **Dynamic Chunking & Normalization** | 0.2 ms | 0.3 ms | 0.4 ms | 0.6 ms | 0.2 ms |
 | **Input Safety Guardrail** | < 0.1 ms | < 0.1 ms | 0.2 ms | 0.4 ms | 0.1 ms |
 | **Embedding (FastEmbed ONNX)** | 1.8 ms | 2.1 ms | 2.6 ms | 3.8 ms | 1.9 ms |
-| **Vector Retrieval (Qdrant)** | 0.9 ms | 1.2 ms | 2.1 ms | 3.5 ms | 1.1 ms |
+| **Vector Retrieval (Qdrant / Inverted)** | 0.9 ms | 1.2 ms | 2.1 ms | 3.5 ms | 1.1 ms |
 | **LLM Generation (Groq LPU)** | 102.0 ms | 104.0 ms | 119.1 ms | 192.0 ms | 87.1 ms |
 | **Hallucination Verification** | 0.1 ms | 0.2 ms | 0.3 ms | 0.5 ms | 0.2 ms |
 | **Total End-to-End Latency** | **102.4 ms** | **106.0 ms** | **117.5 ms** | **192.7 ms** | **87.8 ms** |
