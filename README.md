@@ -110,7 +110,7 @@ Brok does not use a single raw prompt-in, text-out call. The entire pipeline exe
 The system knows when **not** to answer through three real-time guardrail gates (`services/orchestrator/src/guardrails.rs`):
 
 1. **Input Safety & Policy Guardrail (<0.1ms)**: Scans incoming queries for dangerous intent, prompt injection, and prohibited patterns with medical/technical exemption allowlists. Unsafe inputs are refused before vector search runs.
-2. **Context Relevance Gate (Sub-1ms)**: Evaluates top vector similarity scores against a calibrated threshold (`0.30`). If the question is off-topic or ungrounded in the dataset, the system cleanly abstains (*"sorry i dont have any information regarding that."*) without burning LLM tokens.
+2. **Context Relevance Gate (Sub-1ms)**: Evaluates top vector similarity scores against a calibrated threshold (`0.30`). If the question is off-topic or ungrounded in the dataset, the system cleanly abstains (*"couldnt locate in the dataset."*) without burning LLM tokens.
 3. **Hallucination Verification (<0.2ms)**: Analyzes generated output tokens against retrieved context passages. If the ungrounded content token ratio exceeds 80%, the answer is intercepted and replaced with an abstention notice.
 
 ---

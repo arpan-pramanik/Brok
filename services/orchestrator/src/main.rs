@@ -478,7 +478,7 @@ async fn handle_ws(socket: WebSocket, state: AppState) {
 }
 
 async fn run_text_pipeline_stream(query: String, tx: mpsc::Sender<Value>, tts_enabled: bool, state: AppState) {
-    let abstain_answer = "sorry i dont have any information regarding that.";
+    let abstain_answer = "couldnt locate in the dataset.";
 
     // Guardrail 1: Input Safety & Policy Guardrail (Sub-1ms Scan)
     let start_guardrail = std::time::Instant::now();
@@ -584,9 +584,9 @@ async fn run_text_pipeline_stream(query: String, tx: mpsc::Sender<Value>, tts_en
 
     // Direct Groq LPU call — sub-50ms TTFT on custom inference hardware
     let prompt = if context_chunks.is_empty() {
-        "sorry i dont have any information regarding that.".to_string()
+        "couldnt locate in the dataset.".to_string()
     } else {
-        format!("Context:\n{}\n\nQuestion: {}\nAnswer the question directly and concisely in 1-2 complete sentences based on the context above.\nAnswer:", context_chunks.join(" "), query)
+        format!("Context:\n{}\n\nQuestion: {}\nAnswer the question directly and concisely in 1-2 complete sentences based on the context above. If the context does not contain the answer, say: \"couldnt locate in the dataset.\"\nAnswer:", context_chunks.join(" "), query)
     };
 
     let groq_api_key1 = env::var("GROQ_API_KEY").unwrap_or_default();
