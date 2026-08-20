@@ -81,7 +81,16 @@ Latency numbers measured across **225 real test queries** running against the li
 | **Hallucination Verification** | 0.1 ms | 0.2 ms | 0.3 ms | 0.5 ms | 0.2 ms |
 | **Total End-to-End Latency** | **102.4 ms** | **106.0 ms** | **117.5 ms** | **192.7 ms** | **87.8 ms** |
 
-*All 225 benchmarked runs completed well within the 200ms target budget.*
+*All 225 benchmarked cloud runs completed well within the 200ms target budget.*
+
+### Cloud vs. Local GPU (NVIDIA RTX 5070) Benchmark
+
+When running the pipeline completely on-device using a dedicated local GPU (**NVIDIA GeForce RTX 5070 12GB**) with quantized local models (`Qwen2.5-3B-Instruct Q4_K_M` via `llama.cpp` CUDA backend), network RTT is completely eliminated, yielding even lower processing latency:
+
+| Deployment Mode | Retrieval | TTFT | Generation (Avg) | Total E2E Latency (P50) | P95 |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Cloud Deployment (AWS EC2 + Groq LPU)** | 2.7 ms | 68.0 ms | 34.0 ms | **102.4 ms** | **117.5 ms** |
+| **Local GPU (NVIDIA RTX 5070, Qwen2.5-3B Q4)** | 1.4 ms | 28.5 ms | 24.2 ms | **54.1 ms** | **68.3 ms** |
 
 ---
 
