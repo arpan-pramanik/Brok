@@ -2,7 +2,7 @@
 
 # Brok
 
-Ultra-fast voice-enabled Pokédex RAG system delivering end-to-end question answering in under 120 milliseconds.
+Ultra-fast voice-enabled RAG system delivering end-to-end question answering in under 120 milliseconds.
 
 ## Why I Built This
 
