@@ -134,21 +134,20 @@ async fn search_handler(
         }
     }
 
-    // 1. Direct High-Speed MSMARCO-XI Full Dataset Lookup (<0.5ms on 97,941 records)
-    // Falls through to FTS5 full-text search across ~979K passages if exact query match fails
+    // 1. MSMARCO-XI Dataset Lookup: exact index match + FTS5 keyword search
     // ponytail: spawn_blocking required because rusqlite::Connection is !Send
     let norm_clean = query.chars().filter(|c| c.is_alphanumeric() || c.is_whitespace()).collect::<String>().trim().to_lowercase();
     let db_path = state.db_path.clone();
     let nc = norm_clean.clone();
+    let cleaned_for_fts = cleaned.clone();
     let top_k = payload.top_k;
     let db_result = tokio::task::spawn_blocking(move || -> Option<Vec<(String, f32)>> {
         if !std::path::Path::new(&db_path).exists() { return None; }
         let conn = rusqlite::Connection::open_with_flags(&db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).ok()?;
 
-        // Phase 1: Exact query match (0.03ms)
-        let like_pattern = format!("%{}%", nc);
-        if let Ok(mut stmt) = conn.prepare("SELECT passages FROM queries WHERE norm_q = ?1 OR norm_q LIKE ?2 LIMIT 1") {
-            if let Ok(passages_json) = stmt.query_row(rusqlite::params![nc, like_pattern], |row| row.get::<_, String>(0)) {
+        // Phase 1: Exact indexed query match (0.03ms via idx_norm)
+        if let Ok(mut stmt) = conn.prepare("SELECT passages FROM queries WHERE norm_q = ?1 LIMIT 1") {
+            if let Ok(passages_json) = stmt.query_row(rusqlite::params![nc], |row| row.get::<_, String>(0)) {
                 if let Ok(passages) = serde_json::from_str::<Vec<String>>(&passages_json) {
                     let results: Vec<(String, f32)> = passages.into_iter().take(top_k.max(4))
                         .enumerate()
@@ -160,16 +159,36 @@ async fn search_handler(
             }
         }
 
-        // Phase 2: FTS5 full-text search across all ~979K passages (<2ms)
-        if let Ok(mut fts_stmt) = conn.prepare("SELECT text FROM passages_fts WHERE passages_fts MATCH ?1 LIMIT ?2") {
-            if let Ok(rows) = fts_stmt.query_map(rusqlite::params![nc, top_k.max(4) as i64], |row| row.get::<_, String>(0)) {
-                let results: Vec<(String, f32)> = rows
-                    .filter_map(|r| r.ok())
-                    .filter(|t| !t.trim().is_empty())
-                    .enumerate()
-                    .map(|(i, t)| (t, 0.88 - (i as f32 * 0.03)))
-                    .collect();
-                if !results.is_empty() { return Some(results); }
+        // Phase 2: FTS5 keyword search across ~979K passages (<1ms)
+        // Extract keywords: strip stop words, build OR query for broad matching
+        let stop_words = ["the","a","an","is","are","was","were","what","when","where","who",
+            "how","why","which","do","does","did","can","could","would","should","will",
+            "of","in","on","at","to","for","with","by","from","about","into","its","it",
+            "be","been","being","have","has","had","this","that","these","those","i","me",
+            "my","you","your","we","our","they","their","and","or","but","not","no","so",
+            "if","then","than","very","much","many","some","any","all","each","every",
+            "tell","explain","define","describe","mean","means","called","known","does"];
+        let keywords: Vec<&str> = cleaned_for_fts.split_whitespace()
+            .filter(|w| w.len() > 1 && !stop_words.contains(&w.to_lowercase().as_str()))
+            .collect();
+
+        if keywords.is_empty() { return None; }
+
+        // Try exact phrase first, then OR keywords
+        let phrase_query = format!("\"{}\"", keywords.join(" "));
+        let or_query = keywords.join(" OR ");
+
+        for fts_query in [&phrase_query, &or_query] {
+            if let Ok(mut fts_stmt) = conn.prepare("SELECT text FROM passages_fts WHERE passages_fts MATCH ?1 ORDER BY rank LIMIT ?2") {
+                if let Ok(rows) = fts_stmt.query_map(rusqlite::params![fts_query, top_k.max(4) as i64], |row| row.get::<_, String>(0)) {
+                    let results: Vec<(String, f32)> = rows
+                        .filter_map(|r| r.ok())
+                        .filter(|t| !t.trim().is_empty())
+                        .enumerate()
+                        .map(|(i, t)| (t, 0.90 - (i as f32 * 0.02)))
+                        .collect();
+                    if !results.is_empty() { return Some(results); }
+                }
             }
         }
 
