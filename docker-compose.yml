@@ -23,11 +23,13 @@ services:
     environment:
       - QDRANT_URL=http://qdrant:6333
       - COLLECTION_NAME=msmarco_xi
+      - MSMARCO_DB_PATH=/app/data/msmarco_xi.db
       - OMP_NUM_THREADS=16
       - RAYON_NUM_THREADS=16
       - FASTEMBED_CACHE_DIR=/tmp/fastembed_cache
     volumes:
       - /tmp/fastembed_cache:/tmp/fastembed_cache
+      - ./services/retrieval-service/data:/app/data
     dns:
       - 8.8.8.8
       - 1.1.1.1
