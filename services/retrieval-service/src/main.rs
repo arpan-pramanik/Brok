@@ -135,50 +135,49 @@ async fn search_handler(
     }
 
     // 1. Direct High-Speed MSMARCO-XI Full Dataset Lookup (<0.5ms on 97,941 records)
+    // ponytail: spawn_blocking required because rusqlite::Connection is !Send
     let norm_clean = query.chars().filter(|c| c.is_alphanumeric() || c.is_whitespace()).collect::<String>().trim().to_lowercase();
-    if std::path::Path::new(&state.db_path).exists() {
-        if let Ok(conn) = rusqlite::Connection::open_with_flags(&state.db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY) {
-            let mut stmt = conn.prepare("SELECT passages FROM queries WHERE norm_q = ?1 OR norm_q LIKE ?2 LIMIT 1");
-            if let Ok(mut s) = stmt {
-                let like_pattern = format!("%{}%", norm_clean);
-                let row_opt = s.query_row(rusqlite::params![norm_clean, like_pattern], |row| {
-                    let p_str: String = row.get(0)?;
-                    Ok(p_str)
-                });
+    let db_path = state.db_path.clone();
+    let nc = norm_clean.clone();
+    let top_k = payload.top_k;
+    let db_result = tokio::task::spawn_blocking(move || -> Option<Vec<(String, f32)>> {
+        if !std::path::Path::new(&db_path).exists() { return None; }
+        let conn = rusqlite::Connection::open_with_flags(&db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).ok()?;
+        let like_pattern = format!("%{}%", nc);
+        let mut stmt = conn.prepare("SELECT passages FROM queries WHERE norm_q = ?1 OR norm_q LIKE ?2 LIMIT 1").ok()?;
+        let passages_json: String = stmt.query_row(rusqlite::params![nc, like_pattern], |row| row.get(0)).ok()?;
+        let passages: Vec<String> = serde_json::from_str(&passages_json).ok()?;
+        let results: Vec<(String, f32)> = passages.into_iter().take(top_k.max(4))
+            .enumerate()
+            .filter(|(_, t)| !t.trim().is_empty())
+            .map(|(i, t)| (t, 0.95 - (i as f32 * 0.02)))
+            .collect();
+        if results.is_empty() { None } else { Some(results) }
+    }).await.unwrap_or(None);
 
-                if let Ok(passages_json_str) = row_opt {
-                    if let Ok(passages_vec) = serde_json::from_str::<Vec<String>>(&passages_json_str) {
-                        let mut dataset_candidates = Vec::new();
-                        for (idx, p_txt) in passages_vec.into_iter().take(payload.top_k.max(4)).enumerate() {
-                            if !p_txt.trim().is_empty() {
-                                dataset_candidates.push(ChunkCandidate {
-                                    chunk_id: format!("msmarco_val_{}", idx),
-                                    text: p_txt,
-                                    score: 0.95 - (idx as f32 * 0.02),
-                                    source_doc: "ai4bharat/MSMARCO-XI".to_string(),
-                                    chunk_index: idx as i32,
-                                    metadata: json!({"dataset": "ai4bharat/MSMARCO-XI"}),
-                                });
-                            }
-                        }
-
-                        if !dataset_candidates.is_empty() {
-                            let elapsed = start.elapsed().as_secs_f64() * 1000.0;
-                            let mut cache_guard = state.cache.lock().await;
-                            cache_guard.insert(query.clone(), dataset_candidates.clone());
-
-                            return Json(RetrievalResult {
-                                query,
-                                candidates: dataset_candidates.clone(),
-                                rrf_scores: vec![],
-                                top_reranked: dataset_candidates,
-                                retrieval_time_ms: elapsed,
-                            });
-                        }
-                    }
-                }
+    if let Some(passages) = db_result {
+        let dataset_candidates: Vec<ChunkCandidate> = passages.into_iter().enumerate().map(|(idx, (text, score))| {
+            ChunkCandidate {
+                chunk_id: format!("msmarco_val_{}", idx),
+                text,
+                score,
+                source_doc: "ai4bharat/MSMARCO-XI".to_string(),
+                chunk_index: idx as i32,
+                metadata: json!({"dataset": "ai4bharat/MSMARCO-XI"}),
             }
-        }
+        }).collect();
+
+        let elapsed = start.elapsed().as_secs_f64() * 1000.0;
+        let mut cache_guard = state.cache.lock().await;
+        cache_guard.insert(query.clone(), dataset_candidates.clone());
+
+        return Json(RetrievalResult {
+            query,
+            candidates: dataset_candidates.clone(),
+            rrf_scores: vec![],
+            top_reranked: dataset_candidates,
+            retrieval_time_ms: elapsed,
+        });
     }
     
     // 2. Batched embedding for both raw query and normalized keyword query
