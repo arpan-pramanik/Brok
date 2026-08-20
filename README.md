@@ -173,8 +173,7 @@ Open `http://localhost:5173` to interact with the retro Pokédex interface.
 
 ## Live Deployment
 
-- **Live Site**: [https://xcube.arpanpramanik.in](https://xcube.arpanpramanik.in)
-- **Backend API**: `http://65.0.99.182:8000` (AWS EC2, ap-south-1)
+- **Live Site**: [https://brok.arpanpramanik.in](https://brok.arpanpramanik.in)
 
 ---
 
