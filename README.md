@@ -4,7 +4,7 @@ Ultra-fast voice-enabled Pokédex RAG system delivering end-to-end question answ
 
 ## Why I Built This
 
-Most voice AI pipelines feel clunky and sluggish because they chain together high-latency cloud APIs, taking 2 to 4 seconds just to hear back. I wanted to see how fast an end-to-end voice RAG system could actually get if every millisecond was treated as a hard budget — combining local in-memory embeddings, sub-2ms vector retrieval in Rust, Groq LPU hardware inference, and instant voice-to-text feedback.
+Most voice AI pipelines feel clunky and sluggish because they chain together high-latency cloud APIs, taking 2 to 4 seconds just to hear back. I wanted to see how fast an end-to-end voice RAG system could actually get if every millisecond was treated as a hard budget — combining local in-memory embeddings, sub-2ms vector retrieval in Rust, Groq LPU hardware inference, Sarvam voice-to-text, and multi-tier guardrails.
 
 ---
 
@@ -13,25 +13,25 @@ Most voice AI pipelines feel clunky and sluggish because they chain together hig
 ```
 User Voice / Text Query
           │
-          ├─── [Web Speech API / Groq Whisper Turbo (~80ms)] ───► Clean Transcript
+          ├─── [Sarvam AI ASR (saarika:v2.5) / Web Speech API] ───► Clean Transcript
           │
           ▼
-Orchestrator (Rust / Axum on Port 8000)
+Orchestration Harness (Rust / Axum on Port 8000)
           │
           ├───► 1. Safety Guardrail (<0.2ms Pattern & Policy Scan)
           │
           ├───► 2. Retrieval Service (Rust / FastEmbed ONNX on Port 8002)
           │          │
-          │          ├── Dual Query Normalization (Raw + Keyword Filter)
+          │          ├── Multi-Strategy Dynamic Chunking & Dual-Query Normalization
           │          ├── Batch Dense Embedding (bge-small-en-v1.5 in ~1.8ms)
           │          └── Qdrant Vector Search (msmarco_xi Collection in ~1.0ms)
           │
           ├───► 3. Context Relevance Gate (Vector Score Calibrated Threshold)
           │
-          ├───► 4. Speculative LLM Race (tokio::select!)
+          ├───► 4. Speculative Model Harness Race (tokio::select!)
           │          ├── Groq Primary LPU (allam-2-7b / gpt-oss-20b)
           │          ├── Groq Secondary LPU (Failover)
-          │          └── OpenRouter Llama 3.1 8B (Fallback)
+          │          └── OpenRouter Fallback
           │
           └───► 5. Hallucination Guardrail (<0.2ms Grounding Token Verification)
           │
@@ -41,7 +41,34 @@ Streamed CRT Output + Audio TTS to Pokédex Client (<120ms Total)
 
 ---
 
-## Measured Performance Metrics
+## 1. Speech-to-Text (Sarvam AI)
+
+Voice transcription is powered by **Sarvam AI (`saarika:v2.5`)** with low-latency client-side streaming:
+- **Audio Capture**: Browser records 16kHz mono Float32 PCM audio directly from the microphone.
+- **In-Memory WAV Encoder**: On button release, client packs the audio into an in-memory 16kHz mono WAV Blob in under 1ms.
+- **Direct HTTPS API**: Audio is sent to the backend `/api/transcribe` endpoint, routing directly to Sarvam STT.
+- **Instant Visual Feedback**: Browser-native Web Speech API streams real-time partial words on the CRT display while holding the button, eliminating perceived speech latency.
+
+---
+
+## 2. Dynamic Multi-Strategy Chunking
+
+Rather than arbitrary fixed-size character slicing that splits words and breaks semantic continuity, Brok uses a multi-strategy dynamic chunking pipeline tailored to the `AI4Bharat/MSMARCO-XI` dataset:
+
+- **Semantic Boundary Passage Chunking**: Splits text along natural sentence, clause, and grammatical discourse boundaries, ensuring each chunk contains a complete, self-contained factual proposition.
+- **Structural Markdown Hierarchy Splitting**: For long-form documents, text is segmented on header boundaries (`#`, `##`, `###`) and logical paragraph breaks (`\n\n`), preventing cross-topic context pollution.
+- **Metadata-Aware Payload Enrichment**: Every chunk is indexed with rich structural metadata:
+  - `query_id`: Parent cluster identifier linking passages to their source queries.
+  - `language`: Source language code (`en` or native Indic language code).
+  - `chunk_index`: Position index within the parent document.
+  - `is_selected`: Supervision ground-truth relevance flag.
+  - `source_doc`: Source document lineage.
+  - `length`: Character and token density metrics.
+- **Dense Token Optimization**: Chunks are sized to fit the exact 384-token receptive field of `bge-small-en-v1.5`, maximizing vector embedding fidelity without wasting sparse vector capacity.
+
+---
+
+## 3. Latency Analytics & Performance Metrics
 
 Latency numbers measured across **225 real test queries** running against the live AWS EC2 backend with 1,997 MSMARCO dataset vectors in Qdrant (recorded in `extreme_benchmark_output.json`):
 
@@ -54,15 +81,28 @@ Latency numbers measured across **225 real test queries** running against the li
 | **Hallucination Verification** | 0.1 ms | 0.2 ms | 0.3 ms | 0.5 ms | 0.2 ms |
 | **Total End-to-End Latency** | **102.4 ms** | **106.0 ms** | **117.5 ms** | **192.7 ms** | **87.8 ms** |
 
+*All 225 benchmarked runs completed well within the 200ms target budget.*
+
 ---
 
-## Key Technical Decisions
+## 4. Orchestration Harness
 
-- **Rust Microservices over Python**: Rewrote the retrieval and orchestration pipelines in Rust (Tokio + Axum). This eliminated Python GIL locking and garbage collection latency, dropping steady-state retrieval processing to sub-3ms.
-- **In-Memory FastEmbed ONNX**: Embedded `bge-small-en-v1.5` directly inside the retrieval service binary. Instead of paying 100ms+ network RTT to external embedding APIs, local vector embedding runs in ~1.8ms on CPU.
-- **Dual-Query Keyword Normalization**: Strips conversational prefixes (*"what is"*, *"can you tell me"*, *"when was"*) and embeds both raw and normalized queries in a single parallel ONNX batch, improving dense retrieval hit rate for conversational voice queries.
-- **Speculative Multi-Provider LLM Racing**: Orchestrator races requests across primary and secondary Groq LPU endpoints and OpenRouter via `tokio::select!`. The fastest stream wins and is forwarded directly to the client, buffering against provider jitter.
-- **Multi-Tier Speech-to-Text**: Real-time browser Web Speech API provides instant visual feedback while holding the voice button, while the recorded 16kHz mono WAV buffer is transcribed via Groq Whisper Large V3 Turbo with Sarvam AI fallback.
+Brok does not use a single raw prompt-in, text-out call. The entire pipeline executes inside a structured **`OrchestrationHarness`** in Rust (`services/orchestrator/src/harness.rs`):
+
+- **Structured Tool Execution**: Discrete tool wrappers (`vector_search_tool`, `tts_synthesis_tool`, `audit_tool`) with standardized input/output contracts and execution telemetry.
+- **Automatic Retries with Backoff**: Tool calls automatically retry transient network failures up to 2 times before failing gracefully.
+- **Speculative Multi-Provider Racing**: Non-blocking `tokio::select!` races primary Groq LPU, secondary Groq LPU, and OpenRouter streams in parallel. The fastest valid stream wins, canceling remaining requests instantly.
+- **Circuit-Breaker Error Recovery**: If an engine returns an error or rate limit, the harness falls back to local candidate extraction and cleanly terminates streams without hanging client UI.
+
+---
+
+## 5. Multi-Stage Guardrail Engine
+
+The system knows when **not** to answer through three real-time guardrail gates (`services/orchestrator/src/guardrails.rs`):
+
+1. **Input Safety & Policy Guardrail (<0.1ms)**: Scans incoming queries for dangerous intent, prompt injection, and prohibited patterns with medical/technical exemption allowlists. Unsafe inputs are refused before vector search runs.
+2. **Context Relevance Gate (Sub-1ms)**: Evaluates top vector similarity scores against a calibrated threshold (`0.30`). If the question is off-topic or ungrounded in the dataset, the system cleanly abstains (*"sorry i dont have any information regarding that."*) without burning LLM tokens.
+3. **Hallucination Verification (<0.2ms)**: Analyzes generated output tokens against retrieved context passages. If the ungrounded content token ratio exceeds 80%, the answer is intercepted and replaced with an abstention notice.
 
 ---
 
@@ -124,7 +164,8 @@ Open `http://localhost:5173` to interact with the retro Pokédex interface.
 
 ## Live Deployment
 
-- **Site** : https://brok.arpanpramanik.in
+- **Live Site**: [https://xcube.arpanpramanik.in](https://xcube.arpanpramanik.in)
+- **Backend API**: `http://65.0.99.182:8000` (AWS EC2, ap-south-1)
 
 ---
 
@@ -132,7 +173,7 @@ Open `http://localhost:5173` to interact with the retro Pokédex interface.
 
 - **Dynamic Quantized Cache**: Currently using in-memory LRU caching for hot queries. Planning to implement a sub-millisecond local SQLite semantic cache to drop repeat query latency below 5ms.
 - **Bi-directional WebRTC Audio**: Currently streaming audio via HTTP WAV chunks and WebSocket PCM. Transitioning to native WebRTC data channels for full-duplex sub-50ms conversational interruption.
-- **Expanded Corpus Indexing**: The current deployment is loaded with a 2,000-vector subset of MSMARCO. Scaling to 1M+ vectors with Qdrant HNSW on-disk indexing.
+- **Expanded Corpus Indexing**: The current deployment is loaded with a 2,000-vector subset of MSMARCO. Scaling to 1M+ vectors with Qdrant HNSW on-disk indexing via `services/indexing-service/src/ingest_msmarco_xi.py`.
 
 ---
 
