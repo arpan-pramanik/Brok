@@ -1,3 +1,5 @@
+<div align="center"> <img src="https://i.ibb.co/V0zxpWsC/brok.png" alt="Description" width="400"> </div>
+
 # Brok
 
 Ultra-fast voice-enabled Pokédex RAG system delivering end-to-end question answering in under 120 milliseconds.
