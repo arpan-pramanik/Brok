@@ -159,26 +159,31 @@ async fn search_handler(
             }
         }
 
-        // Phase 2: FTS5 keyword search across ~979K passages (<1ms)
-        // Extract keywords: strip stop words, build OR query for broad matching
+        // Phase 2: FTS5 keyword search across ~979K passages (<2ms)
+        // Extract keywords: strip stop words, build AND query for precise matching
         let stop_words = ["the","a","an","is","are","was","were","what","when","where","who",
             "how","why","which","do","does","did","can","could","would","should","will",
             "of","in","on","at","to","for","with","by","from","about","into","its","it",
             "be","been","being","have","has","had","this","that","these","those","i","me",
             "my","you","your","we","our","they","their","and","or","but","not","no","so",
             "if","then","than","very","much","many","some","any","all","each","every",
-            "tell","explain","define","describe","mean","means","called","known","does"];
+            "tell","explain","define","describe","mean","means","called","known",
+            "get","got","go","goes","went","gone","make","made","take","took","taken",
+            "come","came","give","gave","find","found","say","said","see","saw","seen",
+            "look","show","turn","keep","kept","start","let","run","set","put","try",
+            "use","used","want","need","also","just","still","even","only","like",
+            "long","big","small","new","old","good","bad","high","low","hot","cold"];
         let keywords: Vec<&str> = cleaned_for_fts.split_whitespace()
-            .filter(|w| w.len() > 1 && !stop_words.contains(&w.to_lowercase().as_str()))
+            .filter(|w| w.len() > 2 && !stop_words.contains(&w.to_lowercase().as_str()))
             .collect();
 
         if keywords.is_empty() { return None; }
 
-        // Try exact phrase first, then OR keywords
+        // Try exact phrase first, then AND keywords for precision + speed
         let phrase_query = format!("\"{}\"", keywords.join(" "));
-        let or_query = keywords.join(" OR ");
+        let and_query = keywords.join(" AND ");
 
-        for fts_query in [&phrase_query, &or_query] {
+        for fts_query in [&phrase_query, &and_query] {
             if let Ok(mut fts_stmt) = conn.prepare("SELECT text FROM passages_fts WHERE passages_fts MATCH ?1 ORDER BY rank LIMIT ?2") {
                 if let Ok(rows) = fts_stmt.query_map(rusqlite::params![fts_query, top_k.max(4) as i64], |row| row.get::<_, String>(0)) {
                     let results: Vec<(String, f32)> = rows
