@@ -1,0 +1,23 @@
+# Orchestrator Guardrail Engine - Raw Execution Transcript
+
+## Query 1: "What are the core components of the MSMARCO-XI dataset?"
+[14:12:01.002] [ASR] Final transcript: What are the core components of the MSMARCO-XI dataset?
+[14:12:01.002] [GUARDRAIL-1] Executing intent_scan on query...
+[14:12:01.002] [GUARDRAIL-1] PASS (0.04ms)
+[14:12:01.004] [RETRIEVAL] Vector search completed in 1.8ms
+[14:12:01.004] [GUARDRAIL-2] Context Relevance Gate: Top vector score = 0.842
+[14:12:01.004] [GUARDRAIL-2] Score >= 0.30 -> PASS
+[14:12:01.106] [LLM] Generation TTFT: 102ms
+[14:12:01.150] [LLM] Output: The core components include multilingual queries, passage collections, and qrels for relevance judgments.
+[14:12:01.150] [GUARDRAIL-3] Hallucination Verification: checking ungrounded content ratio...
+[14:12:01.150] [GUARDRAIL-3] Ratio = 0.00 (Threshold 0.80) -> PASS
+
+## Query 2: "What are the rules of underwater rugby?"
+[14:15:22.110] [ASR] Final transcript: What are the rules of underwater rugby?
+[14:15:22.110] [GUARDRAIL-1] Executing intent_scan on query...
+[14:15:22.110] [GUARDRAIL-1] PASS (0.05ms)
+[14:15:22.112] [RETRIEVAL] Vector search completed in 1.9ms
+[14:15:22.112] [GUARDRAIL-2] Context Relevance Gate: Top vector score = 0.215
+[14:15:22.112] [GUARDRAIL-2] Score < 0.30 -> FAIL
+[14:15:22.112] [ORCHESTRATOR] Aborting LLM generation. Returning abstention fallback.
+[14:15:22.112] [SYSTEM] Response: "I couldn't locate information about underwater rugby in my current dataset."

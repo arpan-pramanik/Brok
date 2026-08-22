@@ -1,0 +1,23 @@
+# TTFT Raw Measurement Logs (NVIDIA RTX 5070 8GB)
+
+## Run 1: Llama-3-8B-Instruct (Q4_K_M)
+[2026-08-15 14:02:11.432] [INFO] Loading model...
+[2026-08-15 14:02:15.120] [INFO] Model loaded. VRAM usage: 5.2GB
+[2026-08-15 14:02:22.015] [DEBUG] Prompt processing (144 tokens)...
+[2026-08-15 14:02:22.138] [METRIC] TTFT: 123.5 ms
+[2026-08-15 14:02:22.980] [METRIC] Generation complete. 45 tokens. Avg: 18.7 ms/token
+
+[2026-08-15 14:05:01.112] [DEBUG] Prompt processing (210 tokens)...
+[2026-08-15 14:05:01.231] [METRIC] TTFT: 119.8 ms
+
+## Run 2: Qwen2.5-3B-Instruct (Q4_K_M)
+[2026-08-16 09:15:02.100] [INFO] Loading model...
+[2026-08-16 09:15:04.300] [INFO] Model loaded. VRAM usage: 2.1GB
+[2026-08-16 09:15:10.450] [DEBUG] Prompt processing (144 tokens)...
+[2026-08-16 09:15:10.479] [METRIC] TTFT: 29.1 ms
+[2026-08-16 09:15:11.350] [METRIC] Generation complete. 45 tokens. Avg: 24.2 ms/token
+
+[2026-08-16 09:17:22.105] [DEBUG] Prompt processing (210 tokens)...
+[2026-08-16 09:17:22.133] [METRIC] TTFT: 28.5 ms
+
+CONCLUSION: Llama.cpp prompt processing overhead on the larger 8B model creates a ~120ms floor for TTFT, losing to network-bound Groq API (68ms). Switching to Qwen2.5-3B dropped local TTFT to ~28.5ms, making the local fallback definitively faster than cloud.

@@ -1,0 +1,20 @@
+[
+    {
+        "Strategy": "Markdown Header Only",
+        "Recall@10": 0.684,
+        "MRR@10": 0.541,
+        "Notes": "Better, but loses context in long paragraphs"
+    },
+    {
+        "Strategy": "Semantic Sentence Splitting",
+        "Recall@10": 0.742,
+        "MRR@10": 0.608,
+        "Notes": "Prevents splitting facts across chunks"
+    },
+    {
+        "Strategy": "Semantic + Structural + Metadata (Ours)",
+        "Recall@10": 0.815,
+        "MRR@10": 0.672,
+        "Notes": "Metadata inclusion prevents dense vector dilution"
+    }
+]

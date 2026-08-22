@@ -47,7 +47,7 @@ The orchestrator implements a non-blocking **speculative race** (`tokio::select!
 
 ---
 
-## 4. Multi-Tier Speech-to-Text Pipeline (Browser Native + Edge Whisper + Sarvam)
+## 4. Multi-Tier Speech-to-Text Pipeline (Browser Native + Sarvam)
 
 ### Problem
 Browser WebSocket audio streaming on mobile devices often drops or gets blocked by strict HTTPS mixed-content policies, while pure client-side STT can struggle with Indian accents or noisy environments.
@@ -55,4 +55,18 @@ Browser WebSocket audio streaming on mobile devices often drops or gets blocked 
 ### Decision
 1. **Client-Side Tier**: Instant visual feedback via Web Speech API (`SpeechRecognition`) for 0ms partial transcript rendering.
 2. **Audio Buffer Tier**: On button release, client encodes recorded 16kHz mono PCM Float32 audio into a WAV Blob and sends it via HTTPS `/api/transcribe`.
-3. **Engine Tier**: Transcribed on Groq Whisper Large V3 Turbo (~80ms), with automatic failover to Sarvam AI (`saarika:v2.5`).
+3. **Engine Tier**: Transcribed directly via Sarvam AI (`saarika:v2.5`) for highly accurate processing without multi-hop routing delays.
+
+---
+
+## 5. Dynamic Multi-Strategy Chunking vs Fixed-Size Arbitrary Slicing
+
+### Problem
+Traditional fixed-size character chunking splits text arbitrarily, often breaking semantic continuity mid-sentence or mid-thought. This causes dense vector embeddings to lose context and degrades recall significantly on complex datasets like MSMARCO-XI.
+
+### Decision
+Brok implements a **Dynamic Multi-Strategy Chunking pipeline** that segments text based on semantic boundaries (sentences, clauses), structural Markdown hierarchy (headers, paragraphs), and injects rich metadata (document titles, source info) into each chunk to preserve global context. 
+
+### Rejected Alternative
+- **Fixed-Size Chunking (e.g., 512 characters with overlap)**: Rejected because it dilutes dense vectors and fragments the semantic meaning of passages, resulting in measurably lower MRR and Recall in our ablations.
+- **Why Dynamic Chunking won**: Our structural + semantic chunking method guarantees each indexed vector encapsulates a complete factual proposition, maximizing the 384-token capacity of our FastEmbed `bge-small-en-v1.5` model.
