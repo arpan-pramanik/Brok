@@ -4,6 +4,10 @@
 
 Ultra-fast voice-enabled RAG system delivering end-to-end question answering in under 120* milliseconds.
 
+## Demo Video
+
+[![Demo Video](https://img.youtube.com/vi/uVuNvuEqFCY/maxresdefault.jpg)](https://www.youtube.com/watch?v=uVuNvuEqFCY)
+
 ## Why I Built This
 
 Most voice AI pipelines feel clunky and sluggish because they chain together high-latency cloud APIs, taking 2 to 4 seconds just to hear back. I wanted to see how fast an end-to-end voice RAG system could actually get if every millisecond was treated as a hard budget — combining local in-memory embeddings, sub-2ms vector retrieval in Rust, Groq LPU hardware inference, Sarvam voice-to-text, and multi-tier guardrails.
